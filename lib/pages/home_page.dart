@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:test111/pages/vocabulary_menu_page.dart';
 import 'chat_page.dart';
+import 'toeic_vocab_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -38,10 +40,14 @@ class HomePage extends StatelessWidget {
             ),
           ),
 
-          const _ImageCard(
+          _ImageCard(
             title: '單字複習',
             subtitle: '',
             imagePath: 'assets/Constellation of Words.png',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const VocabularyMenuPage()),
+            ),
           ),
 
           const _ImageCard(
