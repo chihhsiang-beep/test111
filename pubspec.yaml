@@ -69,6 +69,26 @@ flutter:
      - assets/db/toeic_vocab.db
      - assets/Ember Valley Dreams.png
      - assets/Celestial Flow.png
+     - assets/ielts.png
+     - assets/toefl ibt.png
+     - assets/vocab_background.png
+     - assets/toeic_vocab_category/toeic_review_cover.png
+     - assets/toeic_vocab_category/office.png
+     - assets/toeic_vocab_category/operations management.png
+     - assets/toeic_vocab_category/communicate.png
+     - assets/toeic_vocab_category/Profession.png
+     - assets/toeic_vocab_category/human Resources.png
+     - assets/toeic_vocab_category/technology.png
+     - assets/toeic_vocab_category/Tourism and Transportation.png
+     - assets/toeic_vocab_category/Marketing and Sales.png
+     - assets/toeic_vocab_category/Procurement and Logistics.png
+     - assets/toeic_vocab_category/Finance and Accounting.png
+     - assets/toeic_vocab_category/Accommodation and Catering.png
+     - assets/toeic_vocab_category/Legal Compliance and Security.png
+     - assets/toeic_vocab_category/Business and Real Estate.png
+     - assets/toeic_vocab_category/Meetings and Clippings.png
+     - assets/toeic_vocab_category/Customer Service.png
+
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

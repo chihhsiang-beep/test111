@@ -123,4 +123,32 @@ class VocabDatabaseService {
     debugPrint('getSavedWords result count: ${result.length}');
     return result.map((e) => VocabItem.fromMap(e)).toList();
   }
+
+  Future<List<VocabItem>> getReviewWords({
+    int limit = 30,
+    bool excludeSaved = false,
+  }) async {
+    final db = await database;
+
+    final result = await db.query(
+      'vocab',
+      where: excludeSaved ? 'is_saved = ?' : null,
+      whereArgs: excludeSaved ? [0] : null,
+      orderBy: 'RANDOM()',
+      limit: limit,
+    );
+
+    return result.map((e) => VocabItem.fromMap(e)).toList();
+  }
+
+  Future<void> markSaved(int id) async {
+    final db = await database;
+    await db.update(
+      'vocab',
+      {'is_saved': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
 }
+

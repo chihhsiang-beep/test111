@@ -7,9 +7,9 @@ class VocabularyMenuPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF081633),
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF081633),
+        backgroundColor: Colors.transparent,
         elevation: 0,
         title: const Text(
           '單字複習',
@@ -17,75 +17,91 @@ class VocabularyMenuPage extends StatelessWidget {
         ),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const _BannerCard(
-              title: 'Vocabulary Hub',
-              subtitle: 'Choose Your Exam',
-              imagePath: 'assets/Ember Valley Dreams.png',
-            ),
-            const SizedBox(height: 24),
+      extendBodyBehindAppBar: true,
+      body: Container(
+        decoration: const BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('assets/vocab_background.png'),
+            fit: BoxFit.cover,
+          ),
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.28),
+          ),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const _BannerCard(
+                    title: 'Vocabulary Hub',
+                    subtitle: 'Choose Your Exam',
+                    imagePath: 'assets/Ember Valley Dreams.png',
+                  ),
+                  const SizedBox(height: 24),
 
-            const Text(
-              'Available Now',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
+                  const Text(
+                    'Available Now',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  _ExamWideCard(
+                    title: 'TOEIC',
+                    subtitle: 'Business & workplace English',
+                    tag: 'Available',
+                    imagePath: 'assets/Celestial Flow.png',
+                    enabled: true,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ToeicVocabPage()),
+                      );
+                    },
+                  ),
+
+                  const SizedBox(height: 28),
+
+                  const Text(
+                    'More Coming',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
+                    children: const [
+                      _ExamSmallCard(
+                        title: 'IELTS',
+                        subtitle: 'Academic & real-life English',
+                        tag: 'Coming Soon',
+                        imagePath: 'assets/ielts.png',
+                        enabled: false,
+                      ),
+                      _ExamSmallCard(
+                        title: 'TOEFL',
+                        subtitle: 'Campus & academic English',
+                        tag: 'Coming Soon',
+                        imagePath: 'assets/toefl ibt.png',
+                        enabled: false,
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 12),
-
-            _ExamWideCard(
-              title: 'TOEIC',
-              subtitle: 'Business & workplace English',
-              tag: 'Available',
-              imagePath: 'assets/toeic_card.png',
-              enabled: true,
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const VocabPage()),
-                );
-              },
-            ),
-
-            const SizedBox(height: 28),
-
-            const Text(
-              'More Coming',
-              style: TextStyle(
-                color: Colors.white70,
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            Wrap(
-              spacing: 16,
-              runSpacing: 16,
-              children: const [
-                _ExamSmallCard(
-                  title: 'IELTS',
-                  subtitle: 'Academic & real-life English',
-                  tag: 'Coming Soon',
-                  imagePath: 'assets/ielts_card.png',
-                  enabled: false,
-                ),
-                _ExamSmallCard(
-                  title: 'TOEFL',
-                  subtitle: 'Campus & academic English',
-                  tag: 'Coming Soon',
-                  imagePath: 'assets/toefl_card.png',
-                  enabled: false,
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -114,6 +130,13 @@ class _BannerCard extends StatelessWidget {
           image: AssetImage(imagePath),
           fit: BoxFit.cover,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.22),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Container(
         padding: const EdgeInsets.all(20),
@@ -278,8 +301,8 @@ class _ExamSmallCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cardWidth = (MediaQuery.of(context).size.width - 48) / 2;
 
-    return Opacity(
-      opacity: enabled ? 1.0 : 0.65,
+    return IgnorePointer(
+      ignoring: !enabled,
       child: Container(
         width: cardWidth,
         height: 220,
@@ -288,12 +311,6 @@ class _ExamSmallCard extends StatelessWidget {
           image: DecorationImage(
             image: AssetImage(imagePath),
             fit: BoxFit.cover,
-            colorFilter: enabled
-                ? null
-                : const ColorFilter.mode(
-              Colors.grey,
-              BlendMode.saturation,
-            ),
           ),
           boxShadow: [
             BoxShadow(
