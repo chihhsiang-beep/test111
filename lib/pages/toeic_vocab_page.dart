@@ -19,6 +19,7 @@ class _ToeicVocabPageState extends State<ToeicVocabPage> {
   bool _isLoading = true;
   String? _errorMessage;
   int _currentIndex = 0;
+  int? _sessionId;
 
   VocabItem? get _currentWord {
     if (_sessionWords.isEmpty) return null;
@@ -43,6 +44,7 @@ class _ToeicVocabPageState extends State<ToeicVocabPage> {
       _sessionWords.clear();
       _unknownWords.clear();
       _knownWords.clear();
+      _sessionId = null;
     });
 
     try {
@@ -51,12 +53,20 @@ class _ToeicVocabPageState extends State<ToeicVocabPage> {
         excludeSaved: false,
       );
 
+      final sessionId = await VocabDatabaseService.instance.createStudySession(
+        totalWords: words.length,
+      );
+
+      debugPrint('created sessionId = $sessionId');
+
       if (!mounted) return;
 
       setState(() {
         _sessionWords.addAll(words);
+        _sessionId = sessionId;
       });
     } catch (e) {
+      debugPrint('_loadSession error: $e');
       if (!mounted) return;
       setState(() {
         _errorMessage = e.toString();
@@ -71,22 +81,69 @@ class _ToeicVocabPageState extends State<ToeicVocabPage> {
 
   Future<void> _handleKnown() async {
     final word = _currentWord;
-    if (word == null) return;
+    final sessionId = _sessionId;
+    if (word == null || sessionId == null) return;
 
     _knownWords.add(word);
 
     try {
       await VocabDatabaseService.instance.markSaved(word.id);
-    } catch (_) {}
+
+      await VocabDatabaseService.instance.insertStudySessionWord(
+        sessionId: sessionId,
+        vocabId: word.id,
+        stage: 'first_pass',
+        result: 'known',
+      );
+
+      await VocabDatabaseService.instance.updateStudySessionProgress(
+        sessionId: sessionId,
+        knownCount: _knownWords.length,
+        unknownCount: _unknownWords.length,
+        unknownWordIds: _unknownWords.map((e) => e.id).toList(),
+      );
+
+      debugPrint(
+        '_handleKnown ok: sessionId=$sessionId, vocabId=${word.id}, '
+            'known=${_knownWords.length}, unknown=${_unknownWords.length}',
+      );
+    } catch (e) {
+      debugPrint('_handleKnown error: $e');
+    }
 
     _goNext();
   }
 
-  void _handleUnknown() {
+  Future<void> _handleUnknown() async {
     final word = _currentWord;
-    if (word == null) return;
+    final sessionId = _sessionId;
+    if (word == null || sessionId == null) return;
 
     _unknownWords.add(word);
+
+    try {
+      await VocabDatabaseService.instance.insertStudySessionWord(
+        sessionId: sessionId,
+        vocabId: word.id,
+        stage: 'first_pass',
+        result: 'unknown',
+      );
+
+      await VocabDatabaseService.instance.updateStudySessionProgress(
+        sessionId: sessionId,
+        knownCount: _knownWords.length,
+        unknownCount: _unknownWords.length,
+        unknownWordIds: _unknownWords.map((e) => e.id).toList(),
+      );
+
+      debugPrint(
+        '_handleUnknown ok: sessionId=$sessionId, vocabId=${word.id}, '
+            'known=${_knownWords.length}, unknown=${_unknownWords.length}',
+      );
+    } catch (e) {
+      debugPrint('_handleUnknown error: $e');
+    }
+
     _goNext();
   }
 
@@ -97,18 +154,41 @@ class _ToeicVocabPageState extends State<ToeicVocabPage> {
       });
       return;
     }
-
     _finishRound();
   }
 
-  void _finishRound() {
+  Future<void> _finishRound() async {
+    final sessionId = _sessionId;
+
+    if (sessionId != null) {
+      try {
+        await VocabDatabaseService.instance.finishStudySession(
+          sessionId: sessionId,
+          knownCount: _knownWords.length,
+          unknownCount: _unknownWords.length,
+          reviewRounds: 1,
+          unknownWordIds: _unknownWords.map((e) => e.id).toList(),
+        );
+
+        debugPrint(
+          '_finishRound ok: sessionId=$sessionId, '
+              'known=${_knownWords.length}, unknown=${_unknownWords.length}',
+        );
+      } catch (e) {
+        debugPrint('_finishRound error: $e');
+      }
+    }
+
+    if (!mounted) return;
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => VocabReviewPage(
-          reviewWords: List<VocabItem>.from(_unknownWords),
+          reviewWords: List.from(_unknownWords),
           knownCount: _knownWords.length,
           totalCount: _sessionWords.length,
+          sessionId: _sessionId,
         ),
       ),
     );

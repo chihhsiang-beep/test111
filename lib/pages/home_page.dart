@@ -41,7 +41,7 @@ class HomePage extends StatelessWidget {
           ),
 
           _ImageCard(
-            title: '單字複習',
+            title: '單字學習',
             subtitle: '',
             imagePath: 'assets/Constellation of Words.png',
             onTap: () => Navigator.push(

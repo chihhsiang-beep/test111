@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
-
+import 'dart:convert';
 import '../models/vocab_item.dart';
 
 class VocabDatabaseService {
@@ -39,7 +39,22 @@ class VocabDatabaseService {
       debugPrint('DB copied.');
     }
 
-    final db = await openDatabase(dbPath);
+    final db = await openDatabase(
+      dbPath,
+      version: 2,
+      onCreate: (db, version) async {
+        await _createStudyTables(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await _createStudyTables(db);
+        }
+      },
+      onOpen: (db) async {
+        await _createStudyTables(db);
+      },
+    );
+
     debugPrint('DB opened.');
 
     final tables = await db.rawQuery(
@@ -51,6 +66,35 @@ class VocabDatabaseService {
     debugPrint('Columns: $columns');
 
     return db;
+  }
+
+  Future<void> _createStudyTables(Database db) async {
+    await db.execute('''
+    CREATE TABLE IF NOT EXISTS study_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_type TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      total_words INTEGER DEFAULT 0,
+      known_count INTEGER DEFAULT 0,
+      unknown_count INTEGER DEFAULT 0,
+      review_rounds INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'in_progress',
+      unknown_words_json TEXT
+    )
+  ''');
+
+    await db.execute('''
+    CREATE TABLE IF NOT EXISTS study_session_words (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL,
+      vocab_id INTEGER NOT NULL,
+      stage TEXT NOT NULL,
+      result TEXT NOT NULL,
+      reviewed_at TEXT NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES study_sessions(id)
+    )
+  ''');
   }
 
   Future<List<VocabItem>> getAllWords({int limit = 100, int offset = 0}) async {
@@ -148,6 +192,102 @@ class VocabDatabaseService {
       {'is_saved': 1},
       where: 'id = ?',
       whereArgs: [id],
+    );
+  }
+
+  Future<int> getSavedWordCount() async {
+    final db = await database;
+
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS count FROM vocab WHERE is_saved = 1',
+    );
+
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  Future<int> createStudySession({
+    required int totalWords,
+    String sessionType = 'toeic',
+  }) async {
+    final db = await database;
+
+    return await db.insert(
+      'study_sessions',
+      {
+        'session_type': sessionType,
+        'started_at': DateTime.now().toIso8601String(),
+        'finished_at': null,
+        'total_words': totalWords,
+        'known_count': 0,
+        'unknown_count': 0,
+        'review_rounds': 1,
+        'status': 'in_progress',
+        'unknown_words_json': jsonEncode(<int>[]),
+      },
+    );
+  }
+
+  Future<void> updateStudySessionProgress({
+    required int sessionId,
+    required int knownCount,
+    required int unknownCount,
+    required List<int> unknownWordIds,
+  }) async {
+    final db = await database;
+
+    await db.update(
+      'study_sessions',
+      {
+        'known_count': knownCount,
+        'unknown_count': unknownCount,
+        'unknown_words_json': jsonEncode(unknownWordIds),
+      },
+      where: 'id = ?',
+      whereArgs: [sessionId],
+    );
+  }
+
+  Future<void> finishStudySession({
+    required int sessionId,
+    required int knownCount,
+    required int unknownCount,
+    required int reviewRounds,
+    required List<int> unknownWordIds,
+  }) async {
+    final db = await database;
+
+    await db.update(
+      'study_sessions',
+      {
+        'finished_at': DateTime.now().toIso8601String(),
+        'known_count': knownCount,
+        'unknown_count': unknownCount,
+        'review_rounds': reviewRounds,
+        'status': 'completed',
+        'unknown_words_json': jsonEncode(unknownWordIds),
+      },
+      where: 'id = ?',
+      whereArgs: [sessionId],
+    );
+  }
+
+  Future<void> insertStudySessionWord({
+    required int sessionId,
+    required int vocabId,
+    required String stage,
+    required String result,
+  }) async {
+    final db = await database;
+
+    await db.insert(
+      'study_session_words',
+      {
+        'session_id': sessionId,
+        'vocab_id': vocabId,
+        'stage': stage,
+        'result': result,
+        'reviewed_at': DateTime.now().toIso8601String(),
+      },
     );
   }
 }

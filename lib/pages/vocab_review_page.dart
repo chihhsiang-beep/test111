@@ -6,12 +6,14 @@ class VocabReviewPage extends StatefulWidget {
   final List<VocabItem> reviewWords;
   final int knownCount;
   final int totalCount;
+  final int? sessionId;
 
   const VocabReviewPage({
     super.key,
     required this.reviewWords,
     required this.knownCount,
     required this.totalCount,
+    required this.sessionId,
   });
 
   @override

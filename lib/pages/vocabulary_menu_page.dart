@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/vocab_database_service.dart';
 import 'toeic_vocab_page.dart';
 
 class VocabularyMenuPage extends StatelessWidget {
@@ -52,16 +53,29 @@ class VocabularyMenuPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
 
-                  _ExamWideCard(
-                    title: 'TOEIC',
-                    subtitle: 'Business & workplace English',
-                    tag: 'Available',
-                    imagePath: 'assets/Celestial Flow.png',
-                    enabled: true,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const ToeicVocabPage()),
+                  FutureBuilder<int>(
+                    future: VocabDatabaseService.instance.getSavedWordCount(),
+                    builder: (context, snapshot) {
+                      final savedCount = snapshot.data ?? 0;
+
+                      return _ExamWideCard(
+                        title: 'TOEIC',
+                        subtitle: 'Business & workplace English',
+                        tag: '$savedCount/1000',
+                        imagePath: 'assets/Celestial Flow.png',
+                        enabled: true,
+                        onTap: () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ToeicVocabPage(),
+                            ),
+                          );
+
+                          // 返回此頁後重新 build，更新收藏數
+                          // StatelessWidget 重新進頁通常會刷新，
+                          // 這裡用 push 後返回即可重新觸發 FutureBuilder。
+                        },
                       );
                     },
                   ),
@@ -240,8 +254,8 @@ class _ExamWideCard extends StatelessWidget {
                 alignment: Alignment.topRight,
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
+                    horizontal: 12,
+                    vertical: 6,
                   ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFE07A5F),
@@ -251,8 +265,8 @@ class _ExamWideCard extends StatelessWidget {
                     tag,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
