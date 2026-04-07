@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/vocab_item.dart';
+import '../services/vocab_database_service.dart';
 import '../utils/vocab_image_mapper.dart';
 
 class VocabReviewPage extends StatefulWidget {
@@ -21,75 +22,218 @@ class VocabReviewPage extends StatefulWidget {
 }
 
 class _VocabReviewPageState extends State<VocabReviewPage> {
-  late List<VocabItem> _words;
-  final List<VocabItem> _againWords = [];
+  late final List<VocabItem> _initialReviewWords;
+  final List<VocabItem> _stillUnknownWords = [];
+  final List<VocabItem> _reviewLearnedWords = [];
 
-  bool _showAnswer = false;
   int _currentIndex = 0;
-  int _round = 1;
-  bool _finished = false;
+  bool _showAnswer = false;
+  bool _isFinishing = false;
 
   VocabItem? get _currentWord {
-    if (_words.isEmpty) return null;
-    if (_currentIndex < 0 || _currentIndex >= _words.length) return null;
-    return _words[_currentIndex];
+    if (_initialReviewWords.isEmpty) return null;
+    if (_currentIndex < 0 || _currentIndex >= _initialReviewWords.length) {
+      return null;
+    }
+    return _initialReviewWords[_currentIndex];
   }
+
+  int get _reviewCount => _initialReviewWords.length;
+  int get _displayProgress => _reviewCount == 0 ? 0 : _currentIndex + 1;
+
+  int get _finalKnownCount => widget.knownCount + _reviewLearnedWords.length;
+  int get _finalUnknownCount => _stillUnknownWords.length;
 
   @override
   void initState() {
     super.initState();
-    _words = List<VocabItem>.from(widget.reviewWords);
-    if (_words.isEmpty) {
-      _finished = true;
-    }
+    _initialReviewWords = List<VocabItem>.from(widget.reviewWords);
   }
 
-  void _knowIt() {
-    _nextWord();
-  }
-
-  void _reviewAgain() {
+  Future<void> _markKnownInReview() async {
     final word = _currentWord;
-    if (word != null) {
-      _againWords.add(word);
+    final sessionId = widget.sessionId;
+    if (word == null) return;
+
+    _reviewLearnedWords.add(word);
+
+    try {
+      await VocabDatabaseService.instance.markSaved(word.id);
+
+      if (sessionId != null) {
+        await VocabDatabaseService.instance.insertStudySessionWord(
+          sessionId: sessionId,
+          vocabId: word.id,
+          stage: 'review_pass',
+          result: 'known',
+        );
+
+        await VocabDatabaseService.instance.updateStudySessionProgress(
+          sessionId: sessionId,
+          knownCount: _finalKnownCount,
+          unknownCount: _finalUnknownCount,
+          unknownWordIds: _stillUnknownWords.map((e) => e.id).toList(),
+        );
+      }
+
+      debugPrint(
+        '_markKnownInReview ok: '
+            'sessionId=$sessionId, vocabId=${word.id}, '
+            'finalKnown=$_finalKnownCount, finalUnknown=$_finalUnknownCount',
+      );
+    } catch (e) {
+      debugPrint('_markKnownInReview error: $e');
     }
-    _nextWord();
+
+    _goNext();
   }
 
-  void _nextWord() {
-    if (_currentIndex < _words.length - 1) {
+  Future<void> _markStillUnknown() async {
+    final word = _currentWord;
+    final sessionId = widget.sessionId;
+    if (word == null) return;
+
+    _stillUnknownWords.add(word);
+
+    try {
+      if (sessionId != null) {
+        await VocabDatabaseService.instance.insertStudySessionWord(
+          sessionId: sessionId,
+          vocabId: word.id,
+          stage: 'review_pass',
+          result: 'unknown',
+        );
+
+        await VocabDatabaseService.instance.updateStudySessionProgress(
+          sessionId: sessionId,
+          knownCount: _finalKnownCount,
+          unknownCount: _finalUnknownCount,
+          unknownWordIds: _stillUnknownWords.map((e) => e.id).toList(),
+        );
+      }
+
+      debugPrint(
+        '_markStillUnknown ok: '
+            'sessionId=$sessionId, vocabId=${word.id}, '
+            'finalKnown=$_finalKnownCount, finalUnknown=$_finalUnknownCount',
+      );
+    } catch (e) {
+      debugPrint('_markStillUnknown error: $e');
+    }
+
+    _goNext();
+  }
+
+  void _goNext() {
+    if (_currentIndex < _initialReviewWords.length - 1) {
       setState(() {
         _currentIndex++;
         _showAnswer = false;
       });
       return;
     }
+    _finishReview();
+  }
 
-    if (_againWords.isEmpty) {
-      setState(() {
-        _finished = true;
-      });
-      return;
+  Future<void> _finishReview() async {
+    if (_isFinishing) return;
+    _isFinishing = true;
+
+    final sessionId = widget.sessionId;
+
+    try {
+      if (sessionId != null) {
+        await VocabDatabaseService.instance.finishStudySession(
+          sessionId: sessionId,
+          knownCount: _finalKnownCount,
+          unknownCount: _finalUnknownCount,
+          reviewRounds: 2,
+          unknownWordIds: _stillUnknownWords.map((e) => e.id).toList(),
+        );
+
+        debugPrint(
+          '_finishReview ok: '
+              'sessionId=$sessionId, finalKnown=$_finalKnownCount, '
+              'finalUnknown=$_finalUnknownCount',
+        );
+      }
+    } catch (e) {
+      debugPrint('_finishReview error: $e');
     }
 
-    setState(() {
-      _words = List<VocabItem>.from(_againWords);
-      _againWords.clear();
-      _currentIndex = 0;
-      _showAnswer = false;
-      _round++;
-    });
+    if (!mounted) return;
+
+    _showResultDialog();
+  }
+
+  void _showResultDialog() {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('複習完成'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildResultRow('本輪總數', '${widget.totalCount}'),
+              const SizedBox(height: 8),
+              _buildResultRow('第一輪已記住', '${widget.knownCount}'),
+              const SizedBox(height: 8),
+              _buildResultRow('第二輪新記住', '${_reviewLearnedWords.length}'),
+              const SizedBox(height: 8),
+              _buildResultRow('最後仍不熟', '${_stillUnknownWords.length}'),
+              const Divider(height: 24),
+              _buildResultRow('最終記住總數', '$_finalKnownCount'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).pop();
+              },
+              child: const Text('返回'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildResultRow(String label, String value) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 15,
+              color: Color(0xFF6B7280),
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF111827),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildHeader() {
-    final total = _words.isEmpty ? 1 : _words.length;
-    final progress = ((_currentIndex + 1).clamp(0, total)) / total;
+    final total = _reviewCount == 0 ? 1 : _reviewCount;
+    final progress = _displayProgress.clamp(0, total) / total;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          '複習不熟單字',
+          '再複習一次',
           style: TextStyle(
             color: Color(0xFF111827),
             fontSize: 24,
@@ -97,9 +241,9 @@ class _VocabReviewPageState extends State<VocabReviewPage> {
           ),
         ),
         const SizedBox(height: 6),
-        Text(
-          'Round $_round · 點一下卡片顯示中文',
-          style: const TextStyle(
+        const Text(
+          '先自己想，點卡片再看答案',
+          style: TextStyle(
             color: Color(0xFF6B7280),
             fontSize: 13,
           ),
@@ -114,13 +258,30 @@ class _VocabReviewPageState extends State<VocabReviewPage> {
             valueColor: const AlwaysStoppedAnimation(Color(0xFFE07A5F)),
           ),
         ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            _StatChip(label: '進度', value: '$_displayProgress / $_reviewCount'),
+            const SizedBox(width: 8),
+            _StatChip(label: '已想起', value: '${_reviewLearnedWords.length}'),
+            const SizedBox(width: 8),
+            _StatChip(label: '仍不熟', value: '${_stillUnknownWords.length}'),
+          ],
+        ),
       ],
     );
   }
 
   Widget _buildCard() {
     final word = _currentWord;
-    if (word == null) return const SizedBox.shrink();
+    if (word == null) {
+      return const Center(
+        child: Text(
+          '沒有需要複習的單字',
+          style: TextStyle(fontSize: 18),
+        ),
+      );
+    }
 
     return GestureDetector(
       onTap: () {
@@ -173,7 +334,24 @@ class _VocabReviewPageState extends State<VocabReviewPage> {
       child: Container(
         decoration: BoxDecoration(
           borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-          color: Colors.black.withOpacity(0.08),
+          color: Colors.black.withOpacity(0.10),
+        ),
+        alignment: Alignment.bottomLeft,
+        padding: const EdgeInsets.all(18),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.45),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            _showAnswer ? '已顯示答案' : '點擊卡片顯示答案',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ),
       ),
     );
@@ -182,12 +360,11 @@ class _VocabReviewPageState extends State<VocabReviewPage> {
   Widget _buildCardContent(VocabItem word) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           word.word,
           style: const TextStyle(
-            fontSize: 32,
+            fontSize: 30,
             fontWeight: FontWeight.w800,
             color: Color(0xFF111827),
           ),
@@ -201,169 +378,112 @@ class _VocabReviewPageState extends State<VocabReviewPage> {
               color: Color(0xFF6B7280),
             ),
           ),
-        const SizedBox(height: 20),
-        AnimatedCrossFade(
+        const SizedBox(height: 18),
+        AnimatedSwitcher(
           duration: const Duration(milliseconds: 180),
-          crossFadeState: _showAnswer
-              ? CrossFadeState.showSecond
-              : CrossFadeState.showFirst,
-          firstChild: Container(
+          child: _showAnswer
+              ? Column(
+            key: const ValueKey('answer'),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                word.definitionZh,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF1F2937),
+                ),
+              ),
+              if (word.category.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  '分類：${word.category}',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    color: Color(0xFF6B7280),
+                  ),
+                ),
+              ],
+              if (word.toeicScoreRange.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  '分數區間：${word.toeicScoreRange}',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    color: Color(0xFF6B7280),
+                  ),
+                ),
+              ],
+              if (word.exampleEn.isNotEmpty) ...[
+                const SizedBox(height: 18),
+                const Divider(),
+                const SizedBox(height: 12),
+                Text(
+                  word.exampleEn,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    color: Color(0xFF111827),
+                    height: 1.5,
+                  ),
+                ),
+              ],
+              if (word.exampleZh.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  word.exampleZh,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Color(0xFF6B7280),
+                    height: 1.5,
+                  ),
+                ),
+              ],
+              if (word.examTip.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  '考點：${word.examTip}',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    color: Color(0xFF6B7280),
+                    height: 1.5,
+                  ),
+                ),
+              ],
+            ],
+          )
+              : Container(
+            key: const ValueKey('hidden'),
             width: double.infinity,
-            padding: const EdgeInsets.all(22),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 18,
+              vertical: 28,
+            ),
             decoration: BoxDecoration(
               color: const Color(0xFFF3F4F6),
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(18),
             ),
-            child: const Column(
-              children: [
-                Icon(Icons.touch_app, size: 38, color: Color(0xFF4E6CB3)),
-                SizedBox(height: 10),
-                Text(
-                  '點一下顯示中文',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF374151),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          secondChild: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF9FAFB),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFE5E7EB)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  word.definitionZh,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF111827),
-                  ),
-                ),
-                if (word.category.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    '分類：${word.category}',
-                    style: const TextStyle(
-                      fontSize: 15,
-                      color: Color(0xFF6B7280),
-                    ),
-                  ),
-                ],
-                if (word.exampleEn.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  Text(
-                    word.exampleEn,
-                    style: const TextStyle(
-                      fontSize: 17,
-                      color: Color(0xFF374151),
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-                if (word.exampleZh.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    word.exampleZh,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      color: Color(0xFF6B7280),
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-                if (word.examTip.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    '考點：${word.examTip}',
-                    style: const TextStyle(
-                      fontSize: 15,
-                      color: Color(0xFF6B7280),
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-              ],
+            child: const Text(
+              '先在腦中回想中文意思，再點一下卡片顯示答案。',
+              style: TextStyle(
+                fontSize: 17,
+                color: Color(0xFF6B7280),
+                height: 1.6,
+              ),
             ),
           ),
         ),
-        const SizedBox(height: 8),
       ],
     );
   }
 
-  Widget _buildFinishedView() {
-    return Center(
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(28),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.emoji_events,
-              size: 64,
-              color: Color(0xFFE07A5F),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              '複習完成',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF111827),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '第一輪記住：${widget.knownCount} / ${widget.totalCount}',
-              style: const TextStyle(fontSize: 18),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              '第二階段已完成',
-              style: TextStyle(fontSize: 18),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.black,
-                foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 56),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
-              ),
-              child: const Text('返回'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildBottomButtons() {
+    final disabled = _isFinishing || _currentWord == null;
+
     return Row(
       children: [
         Expanded(
           child: OutlinedButton(
-            onPressed: _showAnswer ? _reviewAgain : null,
+            onPressed: disabled ? null : _markStillUnknown,
             style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(56),
               side: const BorderSide(color: Colors.black26),
@@ -384,7 +504,7 @@ class _VocabReviewPageState extends State<VocabReviewPage> {
         const SizedBox(width: 14),
         Expanded(
           child: ElevatedButton(
-            onPressed: _showAnswer ? _knowIt : null,
+            onPressed: disabled ? null : _markKnownInReview,
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.black,
               foregroundColor: Colors.white,
@@ -405,13 +525,20 @@ class _VocabReviewPageState extends State<VocabReviewPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_initialReviewWords.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).pop();
+      });
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF3F4F6),
       appBar: AppBar(
         backgroundColor: const Color(0xFFF3F4F6),
         elevation: 0,
         title: const Text(
-          '複習不熟單字',
+          '不熟單字複習',
           style: TextStyle(color: Color(0xFF111827)),
         ),
         iconTheme: const IconThemeData(color: Color(0xFF111827)),
@@ -419,8 +546,8 @@ class _VocabReviewPageState extends State<VocabReviewPage> {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          child: _finished
-              ? _buildFinishedView()
+          child: _initialReviewWords.isEmpty
+              ? const Center(child: Text('沒有需要複習的單字'))
               : Column(
             children: [
               _buildHeader(),
@@ -437,6 +564,49 @@ class _VocabReviewPageState extends State<VocabReviewPage> {
               _buildBottomButtons(),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatChip extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _StatChip({
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Column(
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF6B7280),
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: const TextStyle(
+                color: Color(0xFF111827),
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
         ),
       ),
     );

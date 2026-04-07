@@ -50,7 +50,7 @@ class _ToeicVocabPageState extends State<ToeicVocabPage> {
     try {
       final words = await VocabDatabaseService.instance.getReviewWords(
         limit: 30,
-        excludeSaved: false,
+        excludeSaved: true,
       );
 
       final sessionId = await VocabDatabaseService.instance.createStudySession(
