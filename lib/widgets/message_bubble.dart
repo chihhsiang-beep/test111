@@ -17,6 +17,7 @@ class MessageBubble extends StatefulWidget {
 
 class _MessageBubbleState extends State<MessageBubble> {
   bool _showDetails = false;
+  bool _isSaved = false;
 
   @override
   Widget build(BuildContext context) {
@@ -26,6 +27,7 @@ class _MessageBubbleState extends State<MessageBubble> {
     final bubbleColor = isMe ? const Color(0xFF111827) : Colors.white;
     final mainTextColor = isMe ? Colors.white : const Color(0xFF111827);
     final subTextColor = isMe ? Colors.white70 : const Color(0xFF6B7280);
+
     final borderRadius = BorderRadius.only(
       topLeft: const Radius.circular(22),
       topRight: const Radius.circular(22),
@@ -34,6 +36,11 @@ class _MessageBubbleState extends State<MessageBubble> {
     );
 
     final hasTranslation = message.translatedText.trim().isNotEmpty;
+    final extraContent = _buildExtraLearningContent(
+      originalText: message.originalText,
+      translatedText: message.translatedText,
+      isMe: isMe,
+    );
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
@@ -91,7 +98,7 @@ class _MessageBubbleState extends State<MessageBubble> {
                           fontSize: 16,
                           color: mainTextColor,
                           height: 1.5,
-                          fontWeight: FontWeight.w500,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -147,7 +154,7 @@ class _MessageBubbleState extends State<MessageBubble> {
                             _BubbleActionButton(
                               icon: _showDetails
                                   ? Icons.expand_less
-                                  : Icons.translate,
+                                  : Icons.auto_awesome_outlined,
                               label: _showDetails ? '收合' : '更多',
                               onTap: () {
                                 setState(() {
@@ -158,13 +165,21 @@ class _MessageBubbleState extends State<MessageBubble> {
                             ),
                             const SizedBox(width: 8),
                             _BubbleActionButton(
-                              icon: Icons.copy_rounded,
-                              label: '複製英文',
+                              icon: _isSaved
+                                  ? Icons.bookmark
+                                  : Icons.bookmark_border_rounded,
+                              label: _isSaved ? '已收藏' : '收藏',
                               onTap: () {
+                                setState(() {
+                                  _isSaved = !_isSaved;
+                                });
+
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('已複製英文內容'),
-                                    duration: Duration(seconds: 1),
+                                  SnackBar(
+                                    content: Text(
+                                      _isSaved ? '已加入收藏' : '已取消收藏',
+                                    ),
+                                    duration: const Duration(seconds: 1),
                                   ),
                                 );
                               },
@@ -174,12 +189,13 @@ class _MessageBubbleState extends State<MessageBubble> {
                         ),
                         if (_showDetails) ...[
                           const SizedBox(height: 10),
-                          _DetailSection(
-                            title: '學習提示',
-                            content: isMe
-                                ? '上面是你輸入的中文，下面是對應英文。你可以比對字詞順序，熟悉常見句型。'
-                                : '上面是 AI 的中文回覆，下面是英文版本。你可以直接拿來模仿口說或對話。',
+                          _ExtraLearningPanel(
                             isMe: isMe,
+                            titleColor: mainTextColor,
+                            bodyColor: subTextColor,
+                            alt1: extraContent.alt1,
+                            alt2: extraContent.alt2,
+                            grammarTip: extraContent.grammarTip,
                           ),
                         ],
                       ],
@@ -201,6 +217,56 @@ class _MessageBubbleState extends State<MessageBubble> {
           ),
         ],
       ),
+    );
+  }
+
+  _ExtraContent _buildExtraLearningContent({
+    required String originalText,
+    required String translatedText,
+    required bool isMe,
+  }) {
+    final en = translatedText.trim().toLowerCase();
+
+    if (en.contains('what do you like to eat')) {
+      return _ExtraContent(
+        alt1: 'What kinds of food do you enjoy?',
+        alt2: 'What food do you usually like to eat?',
+        grammarTip:
+        'like to eat 表示「喜歡吃……」。\n'
+            '如果要表達「我是個很愛吃某種東西的人」，可以說：\n'
+            "I'm a big fan of spicy food.\n"
+            "I'm a dessert person.\n"
+            "I'm a girl who loves desserts.",
+      );
+    }
+
+    if (en.contains('i like') || en.contains('i enjoy')) {
+      return _ExtraContent(
+        alt1: 'I really enjoy that kind of food.',
+        alt2: 'That is one of my favorite things to eat.',
+        grammarTip:
+        'I like... / I enjoy... 都可以用來表達喜好。\n'
+            '如果要加強語氣，可以說：\n'
+            "I really like ...\n"
+            "I'm a ... person.\n"
+            '例如：\n'
+            "I'm a coffee person.\n"
+            "I'm a boy who loves ramen.",
+      );
+    }
+
+    return _ExtraContent(
+      alt1: 'You can also say this in a more casual way.',
+      alt2: 'There are often several natural ways to express the same idea.',
+      grammarTip:
+      '同一句中文常常可以有不同英文說法。\n'
+          '你可以注意：\n'
+          '1. 動詞有沒有換掉\n'
+          '2. 語氣是不是更口語\n'
+          '3. 有沒有使用固定句型\n'
+          '例如：\n'
+          "I'm a ... person.\n"
+          "I'm someone who likes ...",
     );
   }
 }
@@ -254,21 +320,25 @@ class _BubbleActionButton extends StatelessWidget {
   }
 }
 
-class _DetailSection extends StatelessWidget {
-  final String title;
-  final String content;
+class _ExtraLearningPanel extends StatelessWidget {
   final bool isMe;
+  final Color titleColor;
+  final Color bodyColor;
+  final String alt1;
+  final String alt2;
+  final String grammarTip;
 
-  const _DetailSection({
-    required this.title,
-    required this.content,
+  const _ExtraLearningPanel({
     required this.isMe,
+    required this.titleColor,
+    required this.bodyColor,
+    required this.alt1,
+    required this.alt2,
+    required this.grammarTip,
   });
 
   @override
   Widget build(BuildContext context) {
-    final titleColor = isMe ? Colors.white : const Color(0xFF111827);
-    final bodyColor = isMe ? Colors.white70 : const Color(0xFF6B7280);
     final bg = isMe
         ? Colors.white.withOpacity(0.08)
         : const Color(0xFFF9FAFB);
@@ -284,24 +354,63 @@ class _DetailSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            title,
+            '其他說法',
             style: TextStyle(
               color: titleColor,
               fontSize: 12,
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           Text(
-            content,
+            '1. $alt1',
             style: TextStyle(
               color: bodyColor,
               fontSize: 13,
               height: 1.5,
             ),
           ),
+          const SizedBox(height: 6),
+          Text(
+            '2. $alt2',
+            style: TextStyle(
+              color: bodyColor,
+              fontSize: 13,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            '文法 / 用法',
+            style: TextStyle(
+              color: titleColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            grammarTip,
+            style: TextStyle(
+              color: bodyColor,
+              fontSize: 13,
+              height: 1.6,
+            ),
+          ),
         ],
       ),
     );
   }
+}
+
+class _ExtraContent {
+  final String alt1;
+  final String alt2;
+  final String grammarTip;
+
+  _ExtraContent({
+    required this.alt1,
+    required this.alt2,
+    required this.grammarTip,
+  });
 }

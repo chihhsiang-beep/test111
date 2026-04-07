@@ -1,21 +1,21 @@
 import 'package:flutter/material.dart';
+import '../models/chat_entry_mode.dart';
 import '../models/chat_message.dart';
 import '../services/ai_service.dart';
-import '../widgets/menu_icon_button.dart';
 import '../widgets/message_bubble.dart';
 
 class ChatPage extends StatefulWidget {
-  const ChatPage({super.key});
+  final ChatEntryMode entryMode;
+  final String? topic;
+
+  const ChatPage({
+    super.key,
+    required this.entryMode,
+    this.topic,
+  });
 
   @override
   State<ChatPage> createState() => _ChatPageState();
-}
-
-enum ChatMode {
-  chat,
-  translate,
-  grammar,
-  speak,
 }
 
 class _ChatPageState extends State<ChatPage> {
@@ -24,7 +24,6 @@ class _ChatPageState extends State<ChatPage> {
   final List<ChatMessage> _messages = [];
 
   bool _isSending = false;
-  ChatMode _selectedMode = ChatMode.chat;
 
   Future<void> _sendMessage() async {
     final text = _textController.text.trim();
@@ -63,17 +62,15 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Future<String> _buildMyTranslation(String text) async {
-    switch (_selectedMode) {
-      case ChatMode.chat:
+    switch (widget.entryMode) {
+      case ChatEntryMode.freeChat:
         return await AIService.translate(text);
-      case ChatMode.translate:
+      case ChatEntryMode.reviewChat:
         return await AIService.translate(text);
-      case ChatMode.grammar:
-        final translated = await AIService.translate(text);
-        return '文法修正版：\n$translated';
-      case ChatMode.speak:
-        final translated = await AIService.translate(text);
-        return '口語版：\n$translated';
+      case ChatEntryMode.topicChat:
+        return await AIService.translate(text);
+      case ChatEntryMode.modelSelect:
+        return await AIService.translate(text);
     }
   }
 
@@ -93,47 +90,47 @@ class _ChatPageState extends State<ChatPage> {
 
     final context = _messages
         .reversed
-        .take(3)
+        .take(4)
         .toList()
         .reversed
         .map((m) => '${m.senderName}: ${m.originalText}')
         .join('\n');
 
     String replyZh;
-    switch (_selectedMode) {
-      case ChatMode.chat:
+
+    switch (widget.entryMode) {
+      case ChatEntryMode.freeChat:
         replyZh = await AIService.getChineseReply(context, userText);
         break;
-      case ChatMode.translate:
-        replyZh = '以下是你的內容翻譯與簡單說明。';
+
+      case ChatEntryMode.reviewChat:
+        replyZh = await AIService.getChineseReply(
+          '$context\n模式：複習聊天，請用較簡單、適合英文學習者的方式回覆。',
+          userText,
+        );
         break;
-      case ChatMode.grammar:
-        replyZh = '我幫你把句子修得更自然了。';
+
+      case ChatEntryMode.topicChat:
+        replyZh = await AIService.getChineseReply(
+          '$context\n目前聊天主題：${widget.topic ?? "一般主題"}，請圍繞此主題回覆。',
+          userText,
+        );
         break;
-      case ChatMode.speak:
-        replyZh = '我幫你轉成比較適合口說的說法。';
+
+      case ChatEntryMode.modelSelect:
+        replyZh = await AIService.getChineseReply(context, userText);
         break;
     }
 
     _updateMessage(amyMsg.id, originalText: replyZh, isLoading: true);
 
-    String replyEn;
-    switch (_selectedMode) {
-      case ChatMode.chat:
-        replyEn = await AIService.translate(replyZh);
-        break;
-      case ChatMode.translate:
-        replyEn = await AIService.translate(userText);
-        break;
-      case ChatMode.grammar:
-        replyEn = await AIService.translate(userText);
-        break;
-      case ChatMode.speak:
-        replyEn = await AIService.translate(userText);
-        break;
-    }
+    final replyEn = await AIService.translate(replyZh);
 
-    _updateMessage(amyMsg.id, translatedText: replyEn, isLoading: false);
+    _updateMessage(
+      amyMsg.id,
+      translatedText: replyEn,
+      isLoading: false,
+    );
     _scrollToBottom();
   }
 
@@ -171,126 +168,174 @@ class _ChatPageState extends State<ChatPage> {
         '${time.minute.toString().padLeft(2, '0')}';
   }
 
-  String _modeHintText() {
-    switch (_selectedMode) {
-      case ChatMode.chat:
-        return '一般聊天 / 中英對照';
-      case ChatMode.translate:
-        return '輸入中文，幫你翻成英文';
-      case ChatMode.grammar:
-        return '輸入句子，偏向文法修正';
-      case ChatMode.speak:
-        return '輸入句子，偏向自然口說';
+  String _pageTitle() {
+    switch (widget.entryMode) {
+      case ChatEntryMode.freeChat:
+        return '隨意聊天';
+      case ChatEntryMode.reviewChat:
+        return '複習聊天';
+      case ChatEntryMode.topicChat:
+        return widget.topic == null ? '主題聊天' : '${widget.topic}聊天';
+      case ChatEntryMode.modelSelect:
+        return 'AI 聊天室';
     }
   }
 
-  Widget _buildModeBar() {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+  String _hintText() {
+    switch (widget.entryMode) {
+      case ChatEntryMode.freeChat:
+        return '想聊什麼都可以...';
+      case ChatEntryMode.reviewChat:
+        return '用剛學過的單字試著聊天...';
+      case ChatEntryMode.topicChat:
+        return '輸入和${widget.topic ?? "主題"}有關的內容...';
+      case ChatEntryMode.modelSelect:
+        return '輸入內容...';
+    }
+  }
+
+  Widget _buildBottomInputArea() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+      ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          MenuIconButton(
-            icon: Icons.chat_bubble_outline_rounded,
-            label: '聊天',
-            selected: _selectedMode == ChatMode.chat,
+          _InputToolButton(
+            icon: Icons.mic_none_rounded,
             onTap: () {
-              setState(() => _selectedMode = ChatMode.chat);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('語音功能之後再接'),
+                  duration: Duration(seconds: 1),
+                ),
+              );
             },
           ),
-          const SizedBox(width: 10),
-          MenuIconButton(
-            icon: Icons.translate_rounded,
-            label: '翻譯',
-            selected: _selectedMode == ChatMode.translate,
+          _InputToolButton(
+            icon: Icons.image_outlined,
             onTap: () {
-              setState(() => _selectedMode = ChatMode.translate);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('圖片功能之後再接'),
+                  duration: Duration(seconds: 1),
+                ),
+              );
             },
           ),
-          const SizedBox(width: 10),
-          MenuIconButton(
-            icon: Icons.spellcheck_rounded,
-            label: '文法',
-            selected: _selectedMode == ChatMode.grammar,
+          _InputToolButton(
+            icon: Icons.bookmark_border_rounded,
             onTap: () {
-              setState(() => _selectedMode = ChatMode.grammar);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('收藏功能之後再接'),
+                  duration: Duration(seconds: 1),
+                ),
+              );
             },
           ),
-          const SizedBox(width: 10),
-          MenuIconButton(
-            icon: Icons.record_voice_over_rounded,
-            label: '口說',
-            selected: _selectedMode == ChatMode.speak,
+          Expanded(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3F4F6),
+                borderRadius: BorderRadius.circular(28),
+              ),
+              child: TextField(
+                controller: _textController,
+                minLines: 1,
+                maxLines: 5,
+                textInputAction: TextInputAction.send,
+                decoration: InputDecoration(
+                  hintText: _hintText(),
+                  border: InputBorder.none,
+                  hintStyle: const TextStyle(
+                    color: Color(0xFF9CA3AF),
+                    fontSize: 15,
+                  ),
+                ),
+                onSubmitted: (_) => _sendMessage(),
+              ),
+            ),
+          ),
+          _InputToolButton(
+            icon: Icons.sentiment_satisfied_alt_outlined,
             onTap: () {
-              setState(() => _selectedMode = ChatMode.speak);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('表情 / 更多功能之後再接'),
+                  duration: Duration(seconds: 1),
+                ),
+              );
             },
+          ),
+          const SizedBox(width: 4),
+          Container(
+            width: 48,
+            height: 48,
+            decoration: const BoxDecoration(
+              color: Color(0xFF111827),
+              shape: BoxShape.circle,
+            ),
+            child: IconButton(
+              icon: _isSending
+                  ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+                  : const Icon(
+                Icons.send_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+              onPressed: _isSending ? null : _sendMessage,
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildInputArea() {
+  Widget _buildModeTag() {
+    String text;
+    switch (widget.entryMode) {
+      case ChatEntryMode.freeChat:
+        text = '隨意聊天';
+        break;
+      case ChatEntryMode.reviewChat:
+        text = '複習聊天';
+        break;
+      case ChatEntryMode.topicChat:
+        text = widget.topic == null ? '主題聊天' : '主題：${widget.topic}';
+        break;
+      case ChatEntryMode.modelSelect:
+        text = '一般聊天';
+        break;
+    }
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      decoration: const BoxDecoration(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
         color: Colors.white,
-        border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
-      child: Column(
-        children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                _modeHintText(),
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF6B7280),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ),
-          Row(
-            children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF3F4F6),
-                    borderRadius: BorderRadius.circular(25),
-                  ),
-                  child: TextField(
-                    controller: _textController,
-                    minLines: 1,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      hintText: '輸入中文...',
-                      border: InputBorder.none,
-                    ),
-                    onSubmitted: (_) => _sendMessage(),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              CircleAvatar(
-                radius: 24,
-                backgroundColor:
-                _isSending ? Colors.grey : const Color(0xFF111827),
-                child: IconButton(
-                  icon: const Icon(
-                    Icons.send_rounded,
-                    color: Colors.white,
-                    size: 20,
-                  ),
-                  onPressed: _isSending ? null : _sendMessage,
-                ),
-              ),
-            ],
-          ),
-        ],
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 12,
+          color: Color(0xFF6B7280),
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -300,9 +345,9 @@ class _ChatPageState extends State<ChatPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FB),
       appBar: AppBar(
-        title: const Text(
-          'AI 聊天室',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: Text(
+          _pageTitle(),
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         backgroundColor: Colors.white,
         elevation: 0.5,
@@ -310,7 +355,7 @@ class _ChatPageState extends State<ChatPage> {
       ),
       body: Column(
         children: [
-          _buildModeBar(),
+          _buildModeTag(),
           Expanded(
             child: _messages.isEmpty
                 ? const _EmptyChatHint()
@@ -327,9 +372,32 @@ class _ChatPageState extends State<ChatPage> {
               },
             ),
           ),
-          _buildInputArea(),
+          _buildBottomInputArea(),
         ],
       ),
+    );
+  }
+}
+
+class _InputToolButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _InputToolButton({
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: onTap,
+      icon: Icon(
+        icon,
+        color: const Color(0xFF4B5563),
+        size: 24,
+      ),
+      splashRadius: 22,
     );
   }
 }
@@ -368,10 +436,10 @@ class _EmptyChatHint extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              '你可以用聊天、翻譯、文法修正或口說模式來練習。',
+            Text(
+              '現在是聊天室頁面，模式已經在前一頁選好了。',
               textAlign: TextAlign.center,
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 14,
                 color: Color(0xFF6B7280),
                 height: 1.6,

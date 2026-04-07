@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:test111/pages/vocabulary_menu_page.dart';
 import 'chat_page.dart';
-import 'toeic_vocab_page.dart';
+import 'chat_mode_menu_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -36,7 +36,7 @@ class HomePage extends StatelessWidget {
             imagePath: 'assets/Starlit Conversations.png',
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => const ChatPage()),
+              MaterialPageRoute(builder: (context) => const ChatModeMenuPage()),
             ),
           ),
 
