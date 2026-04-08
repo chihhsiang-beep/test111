@@ -41,12 +41,12 @@ class VocabDatabaseService {
 
     final db = await openDatabase(
       dbPath,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await _createStudyTables(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
-        if (oldVersion < 2) {
+        if (oldVersion < 3) {
           await _createStudyTables(db);
         }
       },
@@ -93,6 +93,20 @@ class VocabDatabaseService {
       result TEXT NOT NULL,
       reviewed_at TEXT NOT NULL,
       FOREIGN KEY (session_id) REFERENCES study_sessions(id)
+    )
+  ''');
+
+    await db.execute('''
+    CREATE TABLE IF NOT EXISTS favorite_sentences (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      original_text TEXT NOT NULL,
+      translated_text TEXT NOT NULL,
+      sender_name TEXT,
+      is_me INTEGER NOT NULL DEFAULT 0,
+      source_mode TEXT,
+      topic TEXT,
+      created_at TEXT NOT NULL,
+      saved_at TEXT NOT NULL
     )
   ''');
   }
@@ -288,6 +302,104 @@ class VocabDatabaseService {
         'result': result,
         'reviewed_at': DateTime.now().toIso8601String(),
       },
+    );
+  }
+
+  Future<int> addFavoriteSentence({
+    required String originalText,
+    required String translatedText,
+    required String senderName,
+    required bool isMe,
+    String? sourceMode,
+    String? topic,
+    String? createdAt,
+  }) async {
+    final db = await database;
+
+    return await db.insert(
+      'favorite_sentences',
+      {
+        'original_text': originalText,
+        'translated_text': translatedText,
+        'sender_name': senderName,
+        'is_me': isMe ? 1 : 0,
+        'source_mode': sourceMode,
+        'topic': topic,
+        'created_at': createdAt ?? DateTime.now().toIso8601String(),
+        'saved_at': DateTime.now().toIso8601String(),
+      },
+    );
+  }
+
+  Future<bool> isSentenceFavorited({
+    required String originalText,
+    required String translatedText,
+  }) async {
+    final db = await database;
+
+    final result = await db.query(
+      'favorite_sentences',
+      where: 'original_text = ? AND translated_text = ?',
+      whereArgs: [originalText, translatedText],
+      limit: 1,
+    );
+
+    return result.isNotEmpty;
+  }
+
+  Future<void> removeFavoriteSentence({
+    required String originalText,
+    required String translatedText,
+  }) async {
+    final db = await database;
+
+    await db.delete(
+      'favorite_sentences',
+      where: 'original_text = ? AND translated_text = ?',
+      whereArgs: [originalText, translatedText],
+    );
+  }
+
+  Future<bool> toggleFavoriteSentence({
+    required String originalText,
+    required String translatedText,
+    required String senderName,
+    required bool isMe,
+    String? sourceMode,
+    String? topic,
+    String? createdAt,
+  }) async {
+    final alreadySaved = await isSentenceFavorited(
+      originalText: originalText,
+      translatedText: translatedText,
+    );
+
+    if (alreadySaved) {
+      await removeFavoriteSentence(
+        originalText: originalText,
+        translatedText: translatedText,
+      );
+      return false;
+    } else {
+      await addFavoriteSentence(
+        originalText: originalText,
+        translatedText: translatedText,
+        senderName: senderName,
+        isMe: isMe,
+        sourceMode: sourceMode,
+        topic: topic,
+        createdAt: createdAt,
+      );
+      return true;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getFavoriteSentences() async {
+    final db = await database;
+
+    return await db.query(
+      'favorite_sentences',
+      orderBy: 'saved_at DESC',
     );
   }
 }

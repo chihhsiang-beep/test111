@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/chat_entry_mode.dart';
 import '../models/chat_message.dart';
 import '../services/ai_service.dart';
+import '../services/vocab_database_service.dart';
 import '../widgets/message_bubble.dart';
 
 class ChatPage extends StatefulWidget {
@@ -19,11 +20,93 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
+  //state 變數區
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = [];
-
+  final Set<String> _favoriteCache = {};
   bool _isSending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFavoriteCache();
+  }
+
+  String _favoriteKey(ChatMessage message) {
+    return '${message.originalText}__${message.translatedText}';
+  }
+
+  String _sourceModeText() {
+    switch (widget.entryMode) {
+      case ChatEntryMode.freeChat:
+        return 'free_chat';
+      case ChatEntryMode.reviewChat:
+        return 'review_chat';
+      case ChatEntryMode.topicChat:
+        return 'topic_chat';
+      case ChatEntryMode.modelSelect:
+        return 'model_select';
+    }
+  }
+
+  Future<void> _loadFavoriteCache() async {
+    try {
+      final rows = await VocabDatabaseService.instance.getFavoriteSentences();
+
+      final keys = rows.map((row) {
+        final original = (row['original_text'] ?? '').toString();
+        final translated = (row['translated_text'] ?? '').toString();
+        return '${original}__${translated}';
+      }).toSet();
+
+      if (!mounted) return;
+
+      setState(() {
+        _favoriteCache
+          ..clear()
+          ..addAll(keys);
+      });
+    } catch (e) {
+      debugPrint('_loadFavoriteCache error: $e');
+    }
+  }
+
+  Future<bool> _toggleFavoriteMessage(ChatMessage message) async {
+
+    if (message.translatedText.trim().isEmpty) {
+      return false;
+    }
+
+    try {
+      final saved = await VocabDatabaseService.instance.toggleFavoriteSentence(
+        originalText: message.originalText,
+        translatedText: message.translatedText,
+        senderName: message.senderName,
+        isMe: message.isMe,
+        sourceMode: _sourceModeText(),
+        topic: widget.topic,
+        createdAt: message.createdAt.toIso8601String(),
+      );
+
+      final key = _favoriteKey(message);
+
+      if (!mounted) return saved;
+
+      setState(() {
+        if (saved) {
+          _favoriteCache.add(key);
+        } else {
+          _favoriteCache.remove(key);
+        }
+      });
+
+      return saved;
+    } catch (e) {
+      debugPrint('_toggleFavoriteMessage error: $e');
+      return false;
+    }
+  }
 
   Future<void> _sendMessage() async {
     final text = _textController.text.trim();
@@ -226,17 +309,17 @@ class _ChatPageState extends State<ChatPage> {
               );
             },
           ),
-          _InputToolButton(
-            icon: Icons.bookmark_border_rounded,
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('收藏功能之後再接'),
-                  duration: Duration(seconds: 1),
-                ),
-              );
-            },
-          ),
+          // _InputToolButton(
+          //   icon: Icons.bookmark_border_rounded,
+          //   onTap: () {
+          //     ScaffoldMessenger.of(context).showSnackBar(
+          //       const SnackBar(
+          //         content: Text('收藏功能之後再接'),
+          //         duration: Duration(seconds: 1),
+          //       ),
+          //     );
+          //   },
+          // ),
           Expanded(
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 6),
@@ -368,6 +451,8 @@ class _ChatPageState extends State<ChatPage> {
                 return MessageBubble(
                   message: msg,
                   timeText: _formatTime(msg.createdAt),
+                  initiallySaved: _favoriteCache.contains(_favoriteKey(msg)),
+                  onToggleFavorite: _toggleFavoriteMessage,
                 );
               },
             ),

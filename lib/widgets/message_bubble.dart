@@ -4,11 +4,15 @@ import '../models/chat_message.dart';
 class MessageBubble extends StatefulWidget {
   final ChatMessage message;
   final String timeText;
+  final Future<bool> Function(ChatMessage message)? onToggleFavorite;
+  final bool initiallySaved;
 
   const MessageBubble({
     super.key,
     required this.message,
     required this.timeText,
+    this.onToggleFavorite,
+    this.initiallySaved = false,
   });
 
   @override
@@ -17,7 +21,13 @@ class MessageBubble extends StatefulWidget {
 
 class _MessageBubbleState extends State<MessageBubble> {
   bool _showDetails = false;
-  bool _isSaved = false;
+  late bool _isSaved;
+
+  @override
+  void initState() {
+    super.initState();
+    _isSaved = widget.initiallySaved;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -169,16 +179,20 @@ class _MessageBubbleState extends State<MessageBubble> {
                                   ? Icons.bookmark
                                   : Icons.bookmark_border_rounded,
                               label: _isSaved ? '已收藏' : '收藏',
-                              onTap: () {
+                              onTap: () async {
+                                if (widget.onToggleFavorite == null) return;
+
+                                final saved = await widget.onToggleFavorite!(widget.message);
+
+                                if (!mounted) return;
+
                                 setState(() {
-                                  _isSaved = !_isSaved;
+                                  _isSaved = saved;
                                 });
 
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                    content: Text(
-                                      _isSaved ? '已加入收藏' : '已取消收藏',
-                                    ),
+                                    content: Text(saved ? '已加入收藏' : '已取消收藏'),
                                     duration: const Duration(seconds: 1),
                                   ),
                                 );
