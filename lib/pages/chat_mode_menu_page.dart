@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/chat_entry_mode.dart';
 import '../pages/chat_page.dart';
 import '../pages/chat_topic_select_page.dart';
+import 'model_select_page.dart';
 
 class ChatModeMenuPage extends StatelessWidget {
   const ChatModeMenuPage({super.key});
@@ -101,10 +102,10 @@ class ChatModeMenuPage extends StatelessWidget {
                       title: '模型 / 進階',
                       subtitle: '之後可放模型切換、對話風格、語氣設定。',
                       onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('這個功能還在規劃中'),
-                            duration: Duration(seconds: 1),
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ModelSelectPage(),
                           ),
                         );
                       },

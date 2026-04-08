@@ -44,14 +44,17 @@ class VocabDatabaseService {
       version: 3,
       onCreate: (db, version) async {
         await _createStudyTables(db);
+        await _createChatTables(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 3) {
           await _createStudyTables(db);
+          await _createChatTables(db);
         }
       },
       onOpen: (db) async {
         await _createStudyTables(db);
+        await _createChatTables(db);
       },
     );
 
@@ -400,6 +403,206 @@ class VocabDatabaseService {
     return await db.query(
       'favorite_sentences',
       orderBy: 'saved_at DESC',
+    );
+  }
+  Future<List<Map<String, dynamic>>> getFavoriteSentencesByContext({
+    required String sourceMode,
+    String? topic,
+  }) async {
+    final db = await database;
+
+    if (topic != null && topic.isNotEmpty) {
+      return await db.query(
+        'favorite_sentences',
+        where: 'source_mode = ? AND topic = ?',
+        whereArgs: [sourceMode, topic],
+        orderBy: 'saved_at DESC',
+      );
+    }
+
+    return await db.query(
+      'favorite_sentences',
+      where: 'source_mode = ?',
+      whereArgs: [sourceMode],
+      orderBy: 'saved_at DESC',
+    );
+  }
+
+  Future<void> _createChatTables(Database db) async {
+    await db.execute('''
+    CREATE TABLE IF NOT EXISTS chat_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_key TEXT NOT NULL UNIQUE,
+      mode TEXT NOT NULL,
+      title TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  ''');
+
+    await db.execute('''
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL,
+      role TEXT NOT NULL,
+      message TEXT NOT NULL,
+      translated_text TEXT,
+      extra_json TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+    )
+  ''');
+  }
+
+  String _nowIso() => DateTime.now().toIso8601String();
+
+  Future<int> getOrCreateChatSession({
+    required String sessionKey,
+    required String mode,
+    String? title,
+  }) async {
+    final db = await database;
+
+    final existing = await db.query(
+      'chat_sessions',
+      where: 'session_key = ?',
+      whereArgs: [sessionKey],
+      limit: 1,
+    );
+
+    if (existing.isNotEmpty) {
+      final id = existing.first['id'] as int;
+
+      await db.update(
+        'chat_sessions',
+        {
+          'updated_at': _nowIso(),
+          if (title != null) 'title': title,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+
+      return id;
+    }
+
+    return await db.insert('chat_sessions', {
+      'session_key': sessionKey,
+      'mode': mode,
+      'title': title ?? mode,
+      'created_at': _nowIso(),
+      'updated_at': _nowIso(),
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getChatMessages(int sessionId) async {
+    final db = await database;
+
+    return await db.query(
+      'chat_messages',
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
+      orderBy: 'id ASC',
+    );
+  }
+
+  Future<int> insertChatMessage({
+    required int sessionId,
+    required String role,
+    required String message,
+    String? translatedText,
+    Map<String, dynamic>? extraData,
+  }) async {
+    final db = await database;
+
+    final id = await db.insert('chat_messages', {
+      'session_id': sessionId,
+      'role': role,
+      'message': message,
+      'translated_text': translatedText,
+      'extra_json': extraData == null ? null : jsonEncode(extraData),
+      'created_at': _nowIso(),
+    });
+
+    await db.update(
+      'chat_sessions',
+      {'updated_at': _nowIso()},
+      where: 'id = ?',
+      whereArgs: [sessionId],
+    );
+
+    return id;
+  }
+
+  Future<void> clearChatSessionByKey(String sessionKey) async {
+    final db = await database;
+
+    final session = await db.query(
+      'chat_sessions',
+      where: 'session_key = ?',
+      whereArgs: [sessionKey],
+      limit: 1,
+    );
+
+    if (session.isEmpty) return;
+
+    final sessionId = session.first['id'] as int;
+
+    await db.delete(
+      'chat_messages',
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
+    );
+  }
+
+  Future<void> deleteChatSessionByKey(String sessionKey) async {
+    final db = await database;
+
+    final session = await db.query(
+      'chat_sessions',
+      where: 'session_key = ?',
+      whereArgs: [sessionKey],
+      limit: 1,
+    );
+
+    if (session.isEmpty) return;
+
+    final sessionId = session.first['id'] as int;
+
+    await db.delete(
+      'chat_messages',
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
+    );
+
+    await db.delete(
+      'chat_sessions',
+      where: 'id = ?',
+      whereArgs: [sessionId],
+    );
+  }
+
+  Future<int> updateChatMessage({
+    required int messageId,
+    String? message,
+    String? translatedText,
+    Map<String, dynamic>? extraData,
+  }) async {
+    final db = await database;
+
+    final data = <String, dynamic>{};
+
+    if (message != null) data['message'] = message;
+    if (translatedText != null) data['translated_text'] = translatedText;
+    if (extraData != null) data['extra_json'] = jsonEncode(extraData);
+
+    if (data.isEmpty) return 0;
+
+    return await db.update(
+      'chat_messages',
+      data,
+      where: 'id = ?',
+      whereArgs: [messageId],
     );
   }
 }

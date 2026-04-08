@@ -6,13 +6,14 @@ class MessageBubble extends StatefulWidget {
   final String timeText;
   final Future<bool> Function(ChatMessage message)? onToggleFavorite;
   final bool initiallySaved;
-
+  final Future<void> Function(ChatMessage message)? onTapMore;
   const MessageBubble({
     super.key,
     required this.message,
     required this.timeText,
     this.onToggleFavorite,
     this.initiallySaved = false,
+    this.onTapMore,
   });
 
   @override
@@ -38,6 +39,7 @@ class _MessageBubbleState extends State<MessageBubble> {
     final mainTextColor = isMe ? Colors.white : const Color(0xFF111827);
     final subTextColor = isMe ? Colors.white70 : const Color(0xFF6B7280);
 
+
     final borderRadius = BorderRadius.only(
       topLeft: const Radius.circular(22),
       topRight: const Radius.circular(22),
@@ -46,11 +48,6 @@ class _MessageBubbleState extends State<MessageBubble> {
     );
 
     final hasTranslation = message.translatedText.trim().isNotEmpty;
-    final extraContent = _buildExtraLearningContent(
-      originalText: message.originalText,
-      translatedText: message.translatedText,
-      isMe: isMe,
-    );
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
@@ -166,10 +163,22 @@ class _MessageBubbleState extends State<MessageBubble> {
                                   ? Icons.expand_less
                                   : Icons.auto_awesome_outlined,
                               label: _showDetails ? '收合' : '更多',
-                              onTap: () {
+                              onTap: () async {
+                                if (_showDetails) {
+                                  setState(() {
+                                    _showDetails = false;
+                                  });
+                                  return;
+                                }
+
                                 setState(() {
-                                  _showDetails = !_showDetails;
+                                  _showDetails = true;
                                 });
+
+                                if (widget.onTapMore != null &&
+                                    (message.extraInfo == null || message.extraInfo!.trim().isEmpty)) {
+                                  await widget.onTapMore!(message);
+                                }
                               },
                               isMe: isMe,
                             ),
@@ -207,9 +216,8 @@ class _MessageBubbleState extends State<MessageBubble> {
                             isMe: isMe,
                             titleColor: mainTextColor,
                             bodyColor: subTextColor,
-                            alt1: extraContent.alt1,
-                            alt2: extraContent.alt2,
-                            grammarTip: extraContent.grammarTip,
+                            extraInfo: message.extraInfo,
+                            isLoading: message.isExtraLoading,
                           ),
                         ],
                       ],
@@ -231,56 +239,6 @@ class _MessageBubbleState extends State<MessageBubble> {
           ),
         ],
       ),
-    );
-  }
-
-  _ExtraContent _buildExtraLearningContent({
-    required String originalText,
-    required String translatedText,
-    required bool isMe,
-  }) {
-    final en = translatedText.trim().toLowerCase();
-
-    if (en.contains('what do you like to eat')) {
-      return _ExtraContent(
-        alt1: 'What kinds of food do you enjoy?',
-        alt2: 'What food do you usually like to eat?',
-        grammarTip:
-        'like to eat 表示「喜歡吃……」。\n'
-            '如果要表達「我是個很愛吃某種東西的人」，可以說：\n'
-            "I'm a big fan of spicy food.\n"
-            "I'm a dessert person.\n"
-            "I'm a girl who loves desserts.",
-      );
-    }
-
-    if (en.contains('i like') || en.contains('i enjoy')) {
-      return _ExtraContent(
-        alt1: 'I really enjoy that kind of food.',
-        alt2: 'That is one of my favorite things to eat.',
-        grammarTip:
-        'I like... / I enjoy... 都可以用來表達喜好。\n'
-            '如果要加強語氣，可以說：\n'
-            "I really like ...\n"
-            "I'm a ... person.\n"
-            '例如：\n'
-            "I'm a coffee person.\n"
-            "I'm a boy who loves ramen.",
-      );
-    }
-
-    return _ExtraContent(
-      alt1: 'You can also say this in a more casual way.',
-      alt2: 'There are often several natural ways to express the same idea.',
-      grammarTip:
-      '同一句中文常常可以有不同英文說法。\n'
-          '你可以注意：\n'
-          '1. 動詞有沒有換掉\n'
-          '2. 語氣是不是更口語\n'
-          '3. 有沒有使用固定句型\n'
-          '例如：\n'
-          "I'm a ... person.\n"
-          "I'm someone who likes ...",
     );
   }
 }
@@ -338,24 +296,83 @@ class _ExtraLearningPanel extends StatelessWidget {
   final bool isMe;
   final Color titleColor;
   final Color bodyColor;
-  final String alt1;
-  final String alt2;
-  final String grammarTip;
+  final String? extraInfo;
+  final bool isLoading;
 
   const _ExtraLearningPanel({
     required this.isMe,
     required this.titleColor,
     required this.bodyColor,
-    required this.alt1,
-    required this.alt2,
-    required this.grammarTip,
+    required this.extraInfo,
+    required this.isLoading,
   });
+
+  String _extractSection(String text, String header) {
+    final lines = text.split('\n');
+    final startIndex = lines.indexWhere(
+          (line) => line.trim().toLowerCase() == '$header:',
+    );
+
+    if (startIndex == -1) return '';
+
+    final buffer = StringBuffer();
+
+    for (int i = startIndex + 1; i < lines.length; i++) {
+      final line = lines[i].trim();
+
+      if (line.toLowerCase() == 'example:' || line.toLowerCase() == 'usage:') {
+        break;
+      }
+
+      if (line.isNotEmpty) {
+        if (buffer.isNotEmpty) buffer.writeln();
+        buffer.write(line);
+      }
+    }
+
+    return buffer.toString().trim();
+  }
 
   @override
   Widget build(BuildContext context) {
     final bg = isMe
         ? Colors.white.withOpacity(0.08)
         : const Color(0xFFF9FAFB);
+
+    if (isLoading) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: bodyColor,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '載入中...',
+              style: TextStyle(
+                color: bodyColor,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final raw = extraInfo?.trim() ?? '';
+    final exampleText = _extractSection(raw, 'example');
+    final usageText = _extractSection(raw, 'usage');
 
     return Container(
       width: double.infinity,
@@ -368,7 +385,7 @@ class _ExtraLearningPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '其他說法',
+            '例句',
             style: TextStyle(
               color: titleColor,
               fontSize: 12,
@@ -377,16 +394,7 @@ class _ExtraLearningPanel extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '1. $alt1',
-            style: TextStyle(
-              color: bodyColor,
-              fontSize: 13,
-              height: 1.5,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '2. $alt2',
+            exampleText.isNotEmpty ? exampleText : 'No example available.',
             style: TextStyle(
               color: bodyColor,
               fontSize: 13,
@@ -404,7 +412,7 @@ class _ExtraLearningPanel extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            grammarTip,
+            usageText.isNotEmpty ? usageText : 'No usage note available.',
             style: TextStyle(
               color: bodyColor,
               fontSize: 13,
@@ -415,16 +423,4 @@ class _ExtraLearningPanel extends StatelessWidget {
       ),
     );
   }
-}
-
-class _ExtraContent {
-  final String alt1;
-  final String alt2;
-  final String grammarTip;
-
-  _ExtraContent({
-    required this.alt1,
-    required this.alt2,
-    required this.grammarTip,
-  });
 }

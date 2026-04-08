@@ -4,6 +4,7 @@ import '../models/chat_message.dart';
 import '../services/ai_service.dart';
 import '../services/vocab_database_service.dart';
 import '../widgets/message_bubble.dart';
+import 'favorite_sentences_page.dart';
 
 class ChatPage extends StatefulWidget {
   final ChatEntryMode entryMode;
@@ -20,17 +21,31 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
-  //state 變數區
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = [];
   final Set<String> _favoriteCache = {};
+
   bool _isSending = false;
+  bool _isLoadingChatHistory = true;
+  int? _sessionId;
 
   @override
   void initState() {
     super.initState();
-    _loadFavoriteCache();
+    _initPage();
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initPage() async {
+    await _loadFavoriteCache();
+    await _initChatSession();
   }
 
   String _favoriteKey(ChatMessage message) {
@@ -48,6 +63,70 @@ class _ChatPageState extends State<ChatPage> {
       case ChatEntryMode.modelSelect:
         return 'model_select';
     }
+  }
+
+  String _buildSessionKey() {
+    switch (widget.entryMode) {
+      case ChatEntryMode.freeChat:
+        return 'chat_free_chat';
+      case ChatEntryMode.reviewChat:
+        return 'chat_review_chat';
+      case ChatEntryMode.topicChat:
+        final safeTopic =
+        (widget.topic ?? 'default').trim().replaceAll(RegExp(r'\s+'), '_');
+        return 'chat_topic_chat_$safeTopic';
+      case ChatEntryMode.modelSelect:
+        return 'chat_model_select';
+    }
+  }
+
+  Future<void> _initChatSession() async {
+    try {
+      final sessionId = await VocabDatabaseService.instance.getOrCreateChatSession(
+        sessionKey: _buildSessionKey(),
+        mode: _sourceModeText(),
+        title: _pageTitle(),
+      );
+
+      final rows = await VocabDatabaseService.instance.getChatMessages(sessionId);
+
+      final restoredMessages = rows.map(_mapRowToChatMessage).toList();
+
+      if (!mounted) return;
+
+      setState(() {
+        _sessionId = sessionId;
+        _messages
+          ..clear()
+          ..addAll(restoredMessages);
+        _isLoadingChatHistory = false;
+      });
+
+      _scrollToBottom(jump: true);
+    } catch (e) {
+      debugPrint('_initChatSession error: $e');
+
+      if (!mounted) return;
+      setState(() {
+        _isLoadingChatHistory = false;
+      });
+    }
+  }
+
+  ChatMessage _mapRowToChatMessage(Map<String, dynamic> row) {
+    final role = (row['role'] ?? '').toString();
+    final isUser = role == 'user';
+
+    return ChatMessage(
+      id: (row['id'] ?? '').toString(),
+      senderName: isUser ? 'Me' : 'Amy',
+      isMe: isUser,
+      originalText: (row['message'] ?? '').toString(),
+      translatedText: (row['translated_text'] ?? '').toString(),
+      createdAt: DateTime.tryParse((row['created_at'] ?? '').toString()) ??
+          DateTime.now(),
+      isLoading: false,
+    );
   }
 
   Future<void> _loadFavoriteCache() async {
@@ -73,7 +152,6 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Future<bool> _toggleFavoriteMessage(ChatMessage message) async {
-
     if (message.translatedText.trim().isEmpty) {
       return false;
     }
@@ -110,56 +188,75 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _sendMessage() async {
     final text = _textController.text.trim();
-    if (text.isEmpty || _isSending) return;
+    if (text.isEmpty || _isSending || _sessionId == null) return;
 
     _textController.clear();
     setState(() => _isSending = true);
 
-    final myMsg = ChatMessage(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      senderName: 'Me',
-      isMe: true,
-      originalText: text,
-      translatedText: '',
-      createdAt: DateTime.now(),
-      isLoading: true,
-    );
-
-    setState(() => _messages.add(myMsg));
-    _scrollToBottom();
-
     try {
+      final userMessageId =
+      await VocabDatabaseService.instance.insertChatMessage(
+        sessionId: _sessionId!,
+        role: 'user',
+        message: text,
+        translatedText: '',
+      );
+
+      final myMsg = ChatMessage(
+        id: userMessageId.toString(),
+        senderName: 'Me',
+        isMe: true,
+        originalText: text,
+        translatedText: '',
+        createdAt: DateTime.now(),
+        isLoading: true,
+      );
+
+      setState(() => _messages.add(myMsg));
+      _scrollToBottom();
+
       final myEn = await _buildMyTranslation(text);
-      _updateMessage(myMsg.id, translatedText: myEn, isLoading: false);
+
+      _updateMessage(
+        myMsg.id,
+        translatedText: myEn,
+        isLoading: false,
+      );
+
+      await VocabDatabaseService.instance.updateChatMessage(
+        messageId: userMessageId,
+        translatedText: myEn,
+      );
 
       await _generateAmyReply(text);
     } catch (e) {
-      _updateMessage(
-        myMsg.id,
-        translatedText: '發生錯誤，請稍後再試。',
-        isLoading: false,
-      );
+      debugPrint('_sendMessage error: $e');
     }
 
+    if (!mounted) return;
     setState(() => _isSending = false);
   }
 
   Future<String> _buildMyTranslation(String text) async {
     switch (widget.entryMode) {
       case ChatEntryMode.freeChat:
-        return await AIService.translate(text);
+        return await AIService.translateToEnglish(text);
       case ChatEntryMode.reviewChat:
-        return await AIService.translate(text);
+        return await AIService.translateToEnglish(text);
       case ChatEntryMode.topicChat:
-        return await AIService.translate(text);
+        return await AIService.translateToEnglish(text);
       case ChatEntryMode.modelSelect:
-        return await AIService.translate(text);
+        return await AIService.translateToEnglish(text);
     }
   }
 
   Future<void> _generateAmyReply(String userText) async {
-    final amyMsg = ChatMessage(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
+    if (_sessionId == null) return;
+
+    final tempId = 'temp_${DateTime.now().microsecondsSinceEpoch}';
+
+    final amyLoadingMsg = ChatMessage(
+      id: tempId,
       senderName: 'Amy',
       isMe: false,
       originalText: '思考中...',
@@ -168,53 +265,99 @@ class _ChatPageState extends State<ChatPage> {
       isLoading: true,
     );
 
-    setState(() => _messages.add(amyMsg));
+    setState(() => _messages.add(amyLoadingMsg));
     _scrollToBottom();
 
-    final context = _messages
-        .reversed
-        .take(4)
-        .toList()
-        .reversed
-        .map((m) => '${m.senderName}: ${m.originalText}')
-        .join('\n');
+    try {
+      final context = _messages
+          .where((m) => m.originalText != '思考中...')
+          .toList()
+          .reversed
+          .take(6)
+          .toList()
+          .reversed
+          .map((m) => '${m.senderName}: ${m.originalText}')
+          .join('\n');
 
-    String replyZh;
+      String replyZh;
 
-    switch (widget.entryMode) {
-      case ChatEntryMode.freeChat:
-        replyZh = await AIService.getChineseReply(context, userText);
-        break;
+      switch (widget.entryMode) {
+        case ChatEntryMode.freeChat:
+          replyZh = await AIService.getChineseReply(context, userText);
+          break;
 
-      case ChatEntryMode.reviewChat:
-        replyZh = await AIService.getChineseReply(
-          '$context\n模式：複習聊天，請用較簡單、適合英文學習者的方式回覆。',
-          userText,
-        );
-        break;
+        case ChatEntryMode.reviewChat:
+          replyZh = await AIService.getChineseReply(
+            '$context\n模式：複習聊天，請用較簡單、適合英文學習者的方式回覆。請一定使用繁體中文回覆，禁止只用英文回答。',
+            userText,
+          );
+          break;
 
-      case ChatEntryMode.topicChat:
-        replyZh = await AIService.getChineseReply(
-          '$context\n目前聊天主題：${widget.topic ?? "一般主題"}，請圍繞此主題回覆。',
-          userText,
-        );
-        break;
+        case ChatEntryMode.topicChat:
+          replyZh = await AIService.getChineseReply(
+            '$context\n目前聊天主題：${widget.topic ?? "一般主題"}，請圍繞此主題回覆。請一定使用繁體中文回覆，禁止只用英文回答。',
+            userText,
+          );
+          break;
 
-      case ChatEntryMode.modelSelect:
-        replyZh = await AIService.getChineseReply(context, userText);
-        break;
+        case ChatEntryMode.modelSelect:
+          replyZh = await AIService.getChineseReply(context, userText);
+          break;
+      }
+
+      final assistantMessageId =
+      await VocabDatabaseService.instance.insertChatMessage(
+        sessionId: _sessionId!,
+        role: 'assistant',
+        message: replyZh,
+        translatedText: '',
+      );
+
+      final assistantMsg = ChatMessage(
+        id: assistantMessageId.toString(),
+        senderName: 'Amy',
+        isMe: false,
+        originalText: replyZh,
+        translatedText: '',
+        createdAt: DateTime.now(),
+        isLoading: true,
+      );
+
+      _replaceMessage(tempId, assistantMsg);
+
+      final replyEn = await AIService.translateToEnglish(replyZh);
+
+      _updateMessage(
+        assistantMsg.id,
+        translatedText: replyEn,
+        isLoading: false,
+      );
+
+      await VocabDatabaseService.instance.updateChatMessage(
+        messageId: assistantMessageId,
+        translatedText: replyEn,
+      );
+
+      _scrollToBottom();
+    } catch (e) {
+      debugPrint('_generateAmyReply error: $e');
+
+      _updateMessage(
+        tempId,
+        originalText: '發生錯誤，請稍後再試。',
+        translatedText: '',
+        isLoading: false,
+      );
     }
+  }
 
-    _updateMessage(amyMsg.id, originalText: replyZh, isLoading: true);
+  void _replaceMessage(String oldId, ChatMessage newMessage) {
+    final index = _messages.indexWhere((m) => m.id == oldId);
+    if (index == -1) return;
 
-    final replyEn = await AIService.translate(replyZh);
-
-    _updateMessage(
-      amyMsg.id,
-      translatedText: replyEn,
-      isLoading: false,
-    );
-    _scrollToBottom();
+    setState(() {
+      _messages[index] = newMessage;
+    });
   }
 
   void _updateMessage(
@@ -235,14 +378,21 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
-  void _scrollToBottom() {
-    Future.delayed(const Duration(milliseconds: 100), () {
+  void _scrollToBottom({bool jump = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 280),
-        curve: Curves.easeOut,
-      );
+
+      final target = _scrollController.position.maxScrollExtent;
+
+      if (jump) {
+        _scrollController.jumpTo(target);
+      } else {
+        _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOut,
+        );
+      }
     });
   }
 
@@ -274,6 +424,85 @@ class _ChatPageState extends State<ChatPage> {
         return '輸入和${widget.topic ?? "主題"}有關的內容...';
       case ChatEntryMode.modelSelect:
         return '輸入內容...';
+    }
+  }
+
+  Future<void> _clearCurrentChat() async {
+    try {
+      await VocabDatabaseService.instance.clearChatSessionByKey(
+        _buildSessionKey(),
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _messages.clear();
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('聊天室已清空'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    } catch (e) {
+      debugPrint('_clearCurrentChat error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('清空失敗'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleMoreTap(ChatMessage message) async {
+    final index = _messages.indexWhere((m) => m.id == message.id);
+    if (index == -1) return;
+
+    final current = _messages[index];
+
+    if (current.extraInfo != null && current.extraInfo!.trim().isNotEmpty) {
+      setState(() {
+        _messages[index] = current.copyWith(
+          isExtraLoading: false,
+        );
+      });
+      return;
+    }
+
+    setState(() {
+      _messages[index] = current.copyWith(
+        isExtraLoading: true,
+      );
+    });
+
+    try {
+      final result = await AIService.getExpressionTips(
+        message.translatedText.trim().isNotEmpty
+            ? message.translatedText
+            : message.originalText,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _messages[index] = _messages[index].copyWith(
+          extraInfo: result,
+          isExtraLoading: false,
+        );
+      });
+    } catch (e) {
+      debugPrint('_handleMoreTap error: $e');
+
+      if (!mounted) return;
+
+      setState(() {
+        _messages[index] = _messages[index].copyWith(
+          extraInfo: 'Paraphrase:\n1. Failed to load.\n2. Please try again.\n\nUsage:\nNo data available.',
+          isExtraLoading: false,
+        );
+      });
     }
   }
 
@@ -309,17 +538,20 @@ class _ChatPageState extends State<ChatPage> {
               );
             },
           ),
-          // _InputToolButton(
-          //   icon: Icons.bookmark_border_rounded,
-          //   onTap: () {
-          //     ScaffoldMessenger.of(context).showSnackBar(
-          //       const SnackBar(
-          //         content: Text('收藏功能之後再接'),
-          //         duration: Duration(seconds: 1),
-          //       ),
-          //     );
-          //   },
-          // ),
+          _InputToolButton(
+            icon: Icons.bookmark_outline_rounded,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => FavoriteSentencesPage(
+                    sourceMode: _sourceModeText(),
+                    topic: widget.topic,
+                  ),
+                ),
+              );
+            },
+          ),
           Expanded(
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 6),
@@ -425,6 +657,15 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoadingChatHistory) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF5F7FB),
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FB),
       appBar: AppBar(
@@ -435,6 +676,13 @@ class _ChatPageState extends State<ChatPage> {
         backgroundColor: Colors.white,
         elevation: 0.5,
         centerTitle: true,
+        actions: [
+          IconButton(
+            onPressed: _clearCurrentChat,
+            icon: const Icon(Icons.delete_outline_rounded),
+            tooltip: '清空聊天室',
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -453,6 +701,7 @@ class _ChatPageState extends State<ChatPage> {
                   timeText: _formatTime(msg.createdAt),
                   initiallySaved: _favoriteCache.contains(_favoriteKey(msg)),
                   onToggleFavorite: _toggleFavoriteMessage,
+                  onTapMore: _handleMoreTap,
                 );
               },
             ),
