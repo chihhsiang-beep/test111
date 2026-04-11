@@ -484,6 +484,8 @@ class _ChatPageState extends State<ChatPage> {
             : message.originalText,
       );
 
+      debugPrint('MORE RAW RESULT = $result');
+
       if (!mounted) return;
 
       setState(() {
@@ -499,7 +501,10 @@ class _ChatPageState extends State<ChatPage> {
 
       setState(() {
         _messages[index] = _messages[index].copyWith(
-          extraInfo: 'Paraphrase:\n1. Failed to load.\n2. Please try again.\n\nUsage:\nNo data available.',
+          extraInfo:
+          'Alternative 1: Failed to load.\n'
+              'Alternative 2: Please try again.\n'
+              'Note: No data available.',
           isExtraLoading: false,
         );
       });

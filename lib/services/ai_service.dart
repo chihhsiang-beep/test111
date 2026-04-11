@@ -3,17 +3,15 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/ai_provider.dart';
+import 'ai_prompt_service.dart';
 import 'ai_settings_service.dart';
 
 class AIService {
   static const String _ollamaUrl = 'http://10.0.2.2:11434/api/generate';
   static const String _ollamaModelName = 'gemma2:2b';
 
-  // 路線 A：先寫死，之後再改成 dart-define 或後端代理
-  static const String _geminiApiKey = 'AIzaSyAhTbe4oGGu81_M1Ncf_Ei7bgd1w6cmFIQ';
-
-  // 可以先用這個
-  static const String _geminiModelName = 'Gemma 4 26B';
+  static const String _geminiApiKey = '';
+  static const String _geminiModelName = 'gemma-4-31b-it';
 
   static Future<AiProvider> getCurrentProvider() async {
     return await AISettingsService.getSelectedProvider();
@@ -23,19 +21,35 @@ class AIService {
     await AISettingsService.setSelectedProvider(provider);
   }
 
-  static Future<String> _generateText(String prompt) async {
+  static Future<String> _generateText(
+      String prompt, {
+        double temperature = 0.3,
+        int maxOutputTokens = 150,
+      }) async {
     final provider = await getCurrentProvider();
 
     switch (provider) {
       case AiProvider.gemmaLocal:
-        return await _callOllama(prompt);
+        return await _callOllama(
+          prompt,
+          temperature: temperature,
+          maxTokens: maxOutputTokens,
+        );
 
       case AiProvider.geminiApi:
-        final geminiResult = await _callGemini(prompt);
+        final geminiResult = await _callGemini(
+          prompt,
+          temperature: temperature,
+          maxOutputTokens: maxOutputTokens,
+        );
 
         if (_isGeminiTemporaryError(geminiResult)) {
           debugPrint('Gemini 暫時失敗，改用 Ollama fallback');
-          return await _callOllama(prompt);
+          return await _callOllama(
+            prompt,
+            temperature: temperature,
+            maxTokens: maxOutputTokens,
+          );
         }
 
         return geminiResult;
@@ -48,7 +62,11 @@ class AIService {
         text.contains('Gemini 沒有回傳內容');
   }
 
-  static Future<String> _callOllama(String prompt) async {
+  static Future<String> _callOllama(
+      String prompt, {
+        double temperature = 0.3,
+        int maxTokens = 150,
+      }) async {
     try {
       final response = await http.post(
         Uri.parse(_ollamaUrl),
@@ -58,7 +76,8 @@ class AIService {
           'prompt': prompt,
           'stream': false,
           'options': {
-            'temperature': 0.3,
+            'temperature': temperature,
+            'num_predict': maxTokens,
           },
         }),
       );
@@ -75,14 +94,17 @@ class AIService {
     }
   }
 
-  static Future<String> _callGemini(String prompt) async {
+  static Future<String> _callGemini(
+      String prompt, {
+        double temperature = 0.3,
+        int maxOutputTokens = 150,
+      }) async {
     if (_geminiApiKey.isEmpty || _geminiApiKey == 'YOUR_GEMINI_API_KEY_HERE') {
       return '錯誤：請先在 ai_service.dart 填入 Gemini API Key';
     }
 
     final url = Uri.parse(
-      'https://generativelanguage.googleapis.com/v1beta/models/'
-          '$_geminiModelName:generateContent?key=$_geminiApiKey',
+      'https://generativelanguage.googleapis.com/v1beta/models/$_geminiModelName:generateContent?key=$_geminiApiKey',
     );
 
     try {
@@ -98,24 +120,25 @@ class AIService {
             }
           ],
           'generationConfig': {
-            'temperature': 0.3,
+            'temperature': temperature,
+            'maxOutputTokens': maxOutputTokens,
+            'topP': 0.8,
+            'topK': 20,
           }
         }),
       );
 
       if (response.statusCode != 200) {
         debugPrint('Gemini error body: ${response.body}');
-
-        if (response.statusCode == 503) {
-          return '錯誤：Gemini 伺服器忙碌中 (503)';
+        if (response.statusCode == 404) {
+          return '錯誤：找不到模型 (404)，請檢查模型名稱或 API 版本';
         }
-
         return '錯誤：Gemini 連線失敗 (${response.statusCode})';
       }
 
       final data = jsonDecode(response.body);
-
       final candidates = data['candidates'];
+
       if (candidates is List && candidates.isNotEmpty) {
         final content = candidates.first['content'];
         final parts = content?['parts'];
@@ -123,12 +146,10 @@ class AIService {
         if (parts is List && parts.isNotEmpty) {
           final text = parts
               .map((e) => (e['text'] ?? '').toString())
-              .join('\n')
+              .join('')
               .trim();
 
-          if (text.isNotEmpty) {
-            return text;
-          }
+          return text.isEmpty ? '錯誤：Gemini 沒有回傳內容' : text;
         }
       }
 
@@ -140,107 +161,211 @@ class AIService {
   }
 
   static Future<String> translateToEnglish(String text) async {
-    final prompt = '''
-You are a professional translator.
-Translate the following text into natural English.
+    final provider = await getCurrentProvider();
 
-Rules:
-1. Output English only.
-2. Do not explain.
-3. Do not add quotation marks.
-4. Keep the meaning natural and conversational.
+    final prompt = AiPromptService.buildTranslateToEnglishPrompt(
+      provider,
+      text,
+    );
 
-Text:
-$text
-''';
+    final raw = await _generateText(
+      prompt,
+      temperature: 0.2,
+      maxOutputTokens: 80,
+    );
 
-    return await _generateText(prompt);
+    return _cleanPlainText(raw);
   }
 
   static Future<String> translateToTraditionalChinese(String text) async {
-    final prompt = '''
-你是一個專業翻譯助手。
-請把以下內容翻譯成自然、口語、繁體中文。
+    final provider = await getCurrentProvider();
 
-規則：
-1. 只輸出繁體中文。
-2. 不要解釋。
-3. 不要加引號。
-4. 保持語氣自然。
+    final prompt = AiPromptService.buildTranslateToTraditionalChinesePrompt(
+      provider,
+      text,
+    );
 
-內容：
-$text
-''';
+    final raw = await _generateText(
+      prompt,
+      temperature: 0.2,
+      maxOutputTokens: 80,
+    );
 
-    return await _generateText(prompt);
+    return _cleanPlainText(raw);
   }
 
   static Future<String> getChineseReply(
       String conversationContext,
       String userText,
       ) async {
-    final prompt = '''
-你是一個叫 Amy 的英文學習夥伴。
+    final provider = await getCurrentProvider();
 
-你必須遵守以下規則：
-1. 一律只使用繁體中文回覆。
-2. 禁止使用英文作為主要回覆內容。
-3. 回覆自然、簡短、像聊天。
-4. 回覆 1 到 3 句即可。
-5. 不要做翻譯說明，不要加註解。
-6. 直接輸出 Amy 的回覆內容。
+    final prompt = AiPromptService.buildChineseReplyPrompt(
+      provider,
+      conversationContext,
+      userText,
+    );
 
-上下文：
-$conversationContext
+    final raw = await _generateText(
+      prompt,
+      temperature: 0.25,
+      maxOutputTokens: 40,
+    );
 
-最新訊息：
-$userText
-''';
+    final cleaned = _cleanPlainText(raw);
 
-    final result = await _generateText(prompt);
-
-    if (_looksMostlyEnglish(result)) {
-      return await translateToTraditionalChinese(result);
+    if (_looksMostlyEnglish(cleaned)) {
+      final translated = await translateToTraditionalChinese(cleaned);
+      return _cleanShortChineseReply(translated);
     }
+
+    return _cleanShortChineseReply(cleaned);
+  }
+
+  static Future<String> getExpressionTips(String sentence) async {
+    final provider = await getCurrentProvider();
+
+    String englishSentence = sentence.trim();
+    if (!_looksMostlyEnglish(englishSentence)) {
+      englishSentence = await translateToEnglish(englishSentence);
+    }
+
+    final prompt = AiPromptService.buildExpressionTipsPrompt(
+      provider,
+      englishSentence,
+    );
+
+    final raw = await _generateText(
+      prompt,
+      temperature: 0.3,
+      maxOutputTokens: 120,
+    );
+
+    debugPrint('RAW EXPRESSION TIPS: $raw');
+
+    if (provider.supportsStrictJsonPrompt) {
+      final parsed = _tryParseJsonObject(raw);
+
+      String alt1 = '';
+      String alt2 = '';
+      String note = '';
+
+      if (parsed != null) {
+        alt1 = (parsed['alternative_1'] ?? '').toString().trim();
+        alt2 = (parsed['alternative_2'] ?? '').toString().trim();
+        note = (parsed['note'] ?? '').toString().trim();
+      }
+
+      alt1 = _cleanPlainText(alt1);
+      alt2 = _cleanPlainText(alt2);
+      note = _cleanPlainText(note);
+
+      if (alt1.isEmpty) alt1 = _buildFallbackAlternative1(englishSentence);
+      if (alt2.isEmpty) alt2 = _buildFallbackAlternative2(englishSentence);
+      if (note.isEmpty) note = 'Use this in a natural everyday conversation.';
+
+      return 'Alternative 1: $alt1\nAlternative 2: $alt2\nNote: $note';
+    } else {
+      final cleaned = _cleanPlainText(raw);
+      return cleaned.isEmpty
+          ? 'Alternative 1: ${_buildFallbackAlternative1(englishSentence)}\n'
+          'Alternative 2: ${_buildFallbackAlternative2(englishSentence)}\n'
+          'Note: Use this in a natural everyday conversation.'
+          : cleaned;
+    }
+  }
+
+  static Map<String, dynamic>? _tryParseJsonObject(String raw) {
+    try {
+      final cleaned = _extractJsonObject(raw);
+      if (cleaned == null) return null;
+
+      final decoded = jsonDecode(cleaned);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('_tryParseJsonObject error: $e');
+      return null;
+    }
+  }
+
+  static String? _extractJsonObject(String text) {
+    final cleaned = text.trim();
+
+    if (cleaned.startsWith('{') && cleaned.endsWith('}')) {
+      return cleaned;
+    }
+
+    final codeBlockMatch =
+    RegExp(r'```(?:json)?\s*([\s\S]*?)\s*```').firstMatch(cleaned);
+    if (codeBlockMatch != null) {
+      final inside = codeBlockMatch.group(1)?.trim();
+      if (inside != null && inside.startsWith('{') && inside.endsWith('}')) {
+        return inside;
+      }
+    }
+
+    final firstBrace = cleaned.indexOf('{');
+    final lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace != -1 && lastBrace != -1 && lastBrace > firstBrace) {
+      return cleaned.substring(firstBrace, lastBrace + 1).trim();
+    }
+
+    return null;
+  }
+
+  static String _cleanPlainText(String text) {
+    var result = text.trim();
+
+    result = result.replaceAll(RegExp(r'^```(?:json)?\s*'), '');
+    result = result.replaceAll(RegExp(r'\s*```$'), '');
+    result = result.replaceAll('"', '');
+    result = result.replaceAll("'", '');
+    result = result.trim();
 
     return result;
   }
 
-  static Future<String> getExpressionTips(String englishSentence) async {
-    final prompt = '''
-You are an English learning coach.
+  static String _cleanShortChineseReply(String text) {
+    var result = _cleanPlainText(text);
 
-Given this sentence:
-$englishSentence
+    result = result.replaceAll(RegExp(r'^Amy[:：]\s*'), '');
+    result = result.replaceAll(RegExp(r'[\r\n]+'), ' ');
+    result = result.trim();
 
-Please provide only:
+    if (result.length > 18) {
+      result = result.substring(0, 18).trim();
+    }
 
-Example:
-(one natural example sentence related to this expression)
-
-Usage:
-(one short grammar or usage note)
-
-Rules:
-1. Use simple English.
-2. Keep it short.
-3. Do not use markdown.
-4. Do not use symbols like **, ##, -, or numbering.
-5. Output exactly in this format:
-
-Example:
-...
-
-Usage:
-...
-''';
-
-    return await _generateText(prompt);
+    return result;
   }
 
   static bool _looksMostlyEnglish(String text) {
     final englishCount = RegExp(r'[A-Za-z]').allMatches(text).length;
     final chineseCount = RegExp(r'[\u4E00-\u9FFF]').allMatches(text).length;
     return englishCount > chineseCount;
+  }
+
+  static String _buildFallbackAlternative1(String sentence) {
+    final s = sentence.trim();
+    if (s.isEmpty) return 'Could you tell me more?';
+    return s;
+  }
+
+  static String _buildFallbackAlternative2(String sentence) {
+    final s = sentence.trim();
+    if (s.isEmpty) return 'Can you explain that a bit more?';
+
+    if (s.toLowerCase().startsWith('can you')) {
+      return s.replaceFirst(RegExp(r'(?i)^can you'), 'Could you');
+    }
+
+    if (s.toLowerCase().startsWith('how')) {
+      return 'Could you explain $s';
+    }
+
+    return 'A more natural variation of this sentence.';
   }
 }

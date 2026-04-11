@@ -18,16 +18,34 @@ extension AiProviderX on AiProvider {
       case AiProvider.gemmaLocal:
         return 'Gemma 2B（本地）';
       case AiProvider.geminiApi:
-        return 'Gemini（雲端）';
+        return 'Gemma 4 31B（雲端）';
     }
   }
 
   String get description {
     switch (this) {
       case AiProvider.gemmaLocal:
-        return '離線可用，不吃 API 額度，但回覆品質較普通';
+        return '離線可用，不吃 API 額度，但較適合短 prompt';
       case AiProvider.geminiApi:
-        return '回覆品質較好，但需要網路';
+        return '回覆品質較好，適合較完整規則與結構化輸出';
+    }
+  }
+
+  bool get prefersSimplePrompt {
+    switch (this) {
+      case AiProvider.gemmaLocal:
+        return true;
+      case AiProvider.geminiApi:
+        return false;
+    }
+  }
+
+  bool get supportsStrictJsonPrompt {
+    switch (this) {
+      case AiProvider.gemmaLocal:
+        return false;
+      case AiProvider.geminiApi:
+        return true;
     }
   }
 

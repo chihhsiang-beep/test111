@@ -307,30 +307,42 @@ class _ExtraLearningPanel extends StatelessWidget {
     required this.isLoading,
   });
 
-  String _extractSection(String text, String header) {
-    final lines = text.split('\n');
-    final startIndex = lines.indexWhere(
-          (line) => line.trim().toLowerCase() == '$header:',
-    );
+  Map<String, String> _parseExtraInfo(String text) {
+    String alt1 = '';
+    String alt2 = '';
+    String note = '';
 
-    if (startIndex == -1) return '';
+    final lines = text
+        .split('\n')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty);
 
-    final buffer = StringBuffer();
-
-    for (int i = startIndex + 1; i < lines.length; i++) {
-      final line = lines[i].trim();
-
-      if (line.toLowerCase() == 'example:' || line.toLowerCase() == 'usage:') {
-        break;
+    for (final line in lines) {
+      if (line.startsWith('Alternative 1:')) {
+        alt1 = line.replaceFirst('Alternative 1:', '').trim();
+      } else if (line.startsWith('Alternative 2:')) {
+        alt2 = line.replaceFirst('Alternative 2:', '').trim();
+      } else if (line.startsWith('Note:')) {
+        note = line.replaceFirst('Note:', '').trim();
       }
 
-      if (line.isNotEmpty) {
-        if (buffer.isNotEmpty) buffer.writeln();
-        buffer.write(line);
+      // 相容舊格式
+      else if (line.startsWith('Example:') && alt1.isEmpty) {
+        alt1 = line.replaceFirst('Example:', '').trim();
+      } else if (line.startsWith('Usage:') && note.isEmpty) {
+        note = line.replaceFirst('Usage:', '').trim();
       }
     }
 
-    return buffer.toString().trim();
+    if (alt1.isEmpty) alt1 = 'No alternative available.';
+    if (alt2.isEmpty) alt2 = 'No alternative available.';
+    if (note.isEmpty) note = 'No note available.';
+
+    return {
+      'alt1': alt1,
+      'alt2': alt2,
+      'note': note,
+    };
   }
 
   @override
@@ -371,8 +383,7 @@ class _ExtraLearningPanel extends StatelessWidget {
     }
 
     final raw = extraInfo?.trim() ?? '';
-    final exampleText = _extractSection(raw, 'example');
-    final usageText = _extractSection(raw, 'usage');
+    final parsed = _parseExtraInfo(raw);
 
     return Container(
       width: double.infinity,
@@ -385,7 +396,7 @@ class _ExtraLearningPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '例句',
+            '其他說法 1',
             style: TextStyle(
               color: titleColor,
               fontSize: 12,
@@ -394,7 +405,7 @@ class _ExtraLearningPanel extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            exampleText.isNotEmpty ? exampleText : 'No example available.',
+            parsed['alt1']!,
             style: TextStyle(
               color: bodyColor,
               fontSize: 13,
@@ -403,7 +414,7 @@ class _ExtraLearningPanel extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            '文法 / 用法',
+            '其他說法 2',
             style: TextStyle(
               color: titleColor,
               fontSize: 12,
@@ -412,7 +423,25 @@ class _ExtraLearningPanel extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            usageText.isNotEmpty ? usageText : 'No usage note available.',
+            parsed['alt2']!,
+            style: TextStyle(
+              color: bodyColor,
+              fontSize: 13,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            '小提示',
+            style: TextStyle(
+              color: titleColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            parsed['note']!,
             style: TextStyle(
               color: bodyColor,
               fontSize: 13,
