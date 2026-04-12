@@ -8,10 +8,21 @@ import 'ai_settings_service.dart';
 
 class AIService {
   static const String _ollamaUrl = 'http://10.0.2.2:11434/api/generate';
-  static const String _ollamaModelName = 'gemma2:2b';
-
   static const String _geminiApiKey = '';
   static const String _geminiModelName = 'gemma-4-31b-it';
+
+  static String _getOllamaModelName(AiProvider provider) {
+    switch (provider) {
+      case AiProvider.gemma2Local:
+        return 'gemma2:2b';
+      case AiProvider.gemma4Local:
+        return 'gemma4:E2B';
+      case AiProvider.qwenLocal:
+        return 'qwen2.5:latest';
+      case AiProvider.geminiApi:
+        throw Exception('geminiApi does not use Ollama model name');
+    }
+  }
 
   static Future<AiProvider> getCurrentProvider() async {
     return await AISettingsService.getSelectedProvider();
@@ -21,17 +32,146 @@ class AIService {
     await AISettingsService.setSelectedProvider(provider);
   }
 
+  static bool _isGemma4Local(AiProvider provider) {
+    return provider == AiProvider.gemma4Local;
+  }
+
+  // =========================
+  // Modular config for NON-gemma4 models
+  // gemma4 uses legacy branch below
+  // =========================
+
+  static double _getTemperature(
+      AiProvider provider,
+      String task,
+      ) {
+    switch (provider) {
+      case AiProvider.gemma2Local:
+        switch (task) {
+          case 'chinese_reply':
+            return 0.20;
+          case 'translate_en':
+          case 'translate_zh':
+            return 0.10;
+          case 'expression_tips':
+            return 0.30;
+          default:
+            return 0.20;
+        }
+
+      case AiProvider.qwenLocal:
+        switch (task) {
+          case 'chinese_reply':
+            return 0.15;
+          case 'translate_en':
+          case 'translate_zh':
+            return 0.10;
+          case 'expression_tips':
+            return 0.25;
+          default:
+            return 0.15;
+        }
+
+      case AiProvider.geminiApi:
+        switch (task) {
+          case 'chinese_reply':
+            return 0.20;
+          case 'translate_en':
+          case 'translate_zh':
+            return 0.10;
+          case 'expression_tips':
+            return 0.20;
+          default:
+            return 0.20;
+        }
+
+      case AiProvider.gemma4Local:
+      // gemma4 不走這套
+        return 0.15;
+    }
+  }
+
+  static int _getMaxTokens(
+      AiProvider provider,
+      String task,
+      ) {
+    switch (provider) {
+      case AiProvider.gemma2Local:
+        switch (task) {
+          case 'chinese_reply':
+            return 100;
+          case 'translate_en':
+          case 'translate_zh':
+            return 120;
+          case 'expression_tips':
+            return 220;
+          default:
+            return 150;
+        }
+
+      case AiProvider.qwenLocal:
+        switch (task) {
+          case 'chinese_reply':
+            return 180;
+          case 'translate_en':
+          case 'translate_zh':
+            return 160;
+          case 'expression_tips':
+            return 240;
+          default:
+            return 180;
+        }
+
+      case AiProvider.geminiApi:
+        switch (task) {
+          case 'chinese_reply':
+            return 120;
+          case 'translate_en':
+          case 'translate_zh':
+            return 120;
+          case 'expression_tips':
+            return 180;
+          default:
+            return 150;
+        }
+
+      case AiProvider.gemma4Local:
+      // gemma4 不走這套
+        return 400;
+    }
+  }
+
+  // =========================
+  // Core generation
+  // =========================
+
   static Future<String> _generateText(
       String prompt, {
         double temperature = 0.3,
         int maxOutputTokens = 150,
       }) async {
     final provider = await getCurrentProvider();
+    return _generateTextWithProvider(
+      provider,
+      prompt,
+      temperature: temperature,
+      maxOutputTokens: maxOutputTokens,
+    );
+  }
 
+  static Future<String> _generateTextWithProvider(
+      AiProvider provider,
+      String prompt, {
+        double temperature = 0.3,
+        int maxOutputTokens = 150,
+      }) async {
     switch (provider) {
-      case AiProvider.gemmaLocal:
+      case AiProvider.gemma2Local:
+      case AiProvider.gemma4Local:
+      case AiProvider.qwenLocal:
         return await _callOllama(
           prompt,
+          provider: provider,
           temperature: temperature,
           maxTokens: maxOutputTokens,
         );
@@ -44,9 +184,10 @@ class AIService {
         );
 
         if (_isGeminiTemporaryError(geminiResult)) {
-          debugPrint('Gemini 暫時失敗，改用 Ollama fallback');
+          debugPrint('Gemini 暫時失敗，改用 Gemma 2B fallback');
           return await _callOllama(
             prompt,
+            provider: AiProvider.gemma2Local,
             temperature: temperature,
             maxTokens: maxOutputTokens,
           );
@@ -64,15 +205,18 @@ class AIService {
 
   static Future<String> _callOllama(
       String prompt, {
+        required AiProvider provider,
         double temperature = 0.3,
-        int maxTokens = 150,
+        int maxTokens = 1500,
       }) async {
     try {
+      final modelName = _getOllamaModelName(provider);
+
       final response = await http.post(
         Uri.parse(_ollamaUrl),
         headers: const {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'model': _ollamaModelName,
+          'model': modelName,
           'prompt': prompt,
           'stream': false,
           'options': {
@@ -160,74 +304,100 @@ class AIService {
     }
   }
 
-  static Future<String> translateToEnglish(String text) async {
-    final provider = await getCurrentProvider();
+  // =========================
+  // gemma4 legacy branch
+  // =========================
+
+  static Future<String> _gemma4LegacyTranslateToEnglish(String text) async {
+    const provider = AiProvider.gemma4Local;
 
     final prompt = AiPromptService.buildTranslateToEnglishPrompt(
       provider,
       text,
     );
 
-    final raw = await _generateText(
+    final raw = await _generateTextWithProvider(
+      provider,
       prompt,
       temperature: 0.2,
-      maxOutputTokens: 80,
+      maxOutputTokens: 800,
     );
 
     return _cleanPlainText(raw);
   }
 
-  static Future<String> translateToTraditionalChinese(String text) async {
-    final provider = await getCurrentProvider();
+  static Future<String> _gemma4LegacyTranslateToTraditionalChinese(
+      String text,
+      ) async {
+    const provider = AiProvider.gemma4Local;
 
     final prompt = AiPromptService.buildTranslateToTraditionalChinesePrompt(
       provider,
       text,
     );
 
-    final raw = await _generateText(
+    final raw = await _generateTextWithProvider(
+      provider,
       prompt,
       temperature: 0.2,
-      maxOutputTokens: 80,
+      maxOutputTokens: 800,
     );
 
     return _cleanPlainText(raw);
   }
 
-  static Future<String> getChineseReply(
+  static Future<String> _gemma4LegacyChineseReply(
       String conversationContext,
       String userText,
       ) async {
-    final provider = await getCurrentProvider();
+    const provider = AiProvider.gemma4Local;
 
     final prompt = AiPromptService.buildChineseReplyPrompt(
       provider,
-      conversationContext,
+      '',
       userText,
     );
 
-    final raw = await _generateText(
+    debugPrint('==== CHINESE REPLY PROMPT ====');
+    debugPrint(prompt);
+
+    final raw = await _generateTextWithProvider(
+      provider,
       prompt,
-      temperature: 0.25,
-      maxOutputTokens: 40,
+      temperature: 0.15,
+      maxOutputTokens: 800,
     );
+
+    debugPrint('==== RAW CHINESE REPLY ====');
+    debugPrint(raw);
 
     final cleaned = _cleanPlainText(raw);
 
-    if (_looksMostlyEnglish(cleaned)) {
-      final translated = await translateToTraditionalChinese(cleaned);
-      return _cleanShortChineseReply(translated);
+    debugPrint('==== CLEANED CHINESE REPLY ====');
+    debugPrint(cleaned);
+
+    if (cleaned.isEmpty) {
+      return '我在喔';
     }
 
-    return _cleanShortChineseReply(cleaned);
+    if (_looksMostlyEnglish(cleaned)) {
+      final translated = await _gemma4LegacyTranslateToTraditionalChinese(
+        cleaned,
+      );
+      final result = _cleanShortChineseReply(translated);
+      return result.isEmpty ? '我在喔' : result;
+    }
+
+    final result = _cleanShortChineseReply(cleaned);
+    return result.isEmpty ? '我在喔' : result;
   }
 
-  static Future<String> getExpressionTips(String sentence) async {
-    final provider = await getCurrentProvider();
+  static Future<String> _gemma4LegacyExpressionTips(String sentence) async {
+    const provider = AiProvider.gemma4Local;
 
     String englishSentence = sentence.trim();
     if (!_looksMostlyEnglish(englishSentence)) {
-      englishSentence = await translateToEnglish(englishSentence);
+      englishSentence = await _gemma4LegacyTranslateToEnglish(englishSentence);
     }
 
     final prompt = AiPromptService.buildExpressionTipsPrompt(
@@ -235,7 +405,8 @@ class AIService {
       englishSentence,
     );
 
-    final raw = await _generateText(
+    final raw = await _generateTextWithProvider(
+      provider,
       prompt,
       temperature: 0.3,
       maxOutputTokens: 120,
@@ -274,6 +445,205 @@ class AIService {
           : cleaned;
     }
   }
+
+  // =========================
+  // Public tasks
+  // =========================
+
+  static Future<String> translateToEnglish(String text) async {
+    final provider = await getCurrentProvider();
+
+    if (_isGemma4Local(provider)) {
+      return _gemma4LegacyTranslateToEnglish(text);
+    }
+
+    final prompt = AiPromptService.buildTranslateToEnglishPrompt(
+      provider,
+      text,
+    );
+
+    final raw = await _generateTextWithProvider(
+      provider,
+      prompt,
+      temperature: _getTemperature(provider, 'translate_en'),
+      maxOutputTokens: _getMaxTokens(provider, 'translate_en'),
+    );
+
+    return _cleanPlainText(raw);
+  }
+
+  static Future<String> translateToTraditionalChinese(String text) async {
+    final provider = await getCurrentProvider();
+
+    if (_isGemma4Local(provider)) {
+      return _gemma4LegacyTranslateToTraditionalChinese(text);
+    }
+
+    final prompt = AiPromptService.buildTranslateToTraditionalChinesePrompt(
+      provider,
+      text,
+    );
+
+    final raw = await _generateTextWithProvider(
+      provider,
+      prompt,
+      temperature: _getTemperature(provider, 'translate_zh'),
+      maxOutputTokens: _getMaxTokens(provider, 'translate_zh'),
+    );
+
+    return _cleanPlainText(raw);
+  }
+
+  static Future<String> getChineseReply(
+      String conversationContext,
+      String userText,
+      ) async {
+    final provider = await getCurrentProvider();
+
+    if (_isGemma4Local(provider)) {
+      return _gemma4LegacyChineseReply(conversationContext, userText);
+    }
+
+    final prompt = AiPromptService.buildChineseReplyPrompt(
+      provider,
+      conversationContext,
+      userText,
+    );
+
+    debugPrint('==== CHINESE REPLY PROMPT ====');
+    debugPrint(prompt);
+
+    final raw = await _generateTextWithProvider(
+      provider,
+      prompt,
+      temperature: _getTemperature(provider, 'chinese_reply'),
+      maxOutputTokens: _getMaxTokens(provider, 'chinese_reply'),
+    );
+
+    debugPrint('==== RAW CHINESE REPLY ====');
+    debugPrint(raw);
+
+    final cleaned = _cleanPlainText(raw);
+
+    debugPrint('==== CLEANED CHINESE REPLY ====');
+    debugPrint(cleaned);
+
+    if (cleaned.isEmpty) {
+      return '我在喔';
+    }
+
+    if (_looksMostlyEnglish(cleaned)) {
+      final translated = await translateToTraditionalChinese(cleaned);
+      final result = _cleanShortChineseReply(translated);
+      return result.isEmpty ? '我在喔' : result;
+    }
+
+    final result = _cleanShortChineseReply(cleaned);
+    return result.isEmpty ? '我在喔' : result;
+  }
+
+  static Future<String> getExpressionTips(String sentence) async {
+    final provider = await getCurrentProvider();
+
+    if (_isGemma4Local(provider)) {
+      return _gemma4LegacyExpressionTips(sentence);
+    }
+
+    String englishSentence = sentence.trim();
+    if (!_looksMostlyEnglish(englishSentence)) {
+      englishSentence = await translateToEnglish(englishSentence);
+    }
+
+    final prompt = AiPromptService.buildExpressionTipsPrompt(
+      provider,
+      englishSentence,
+    );
+
+    final raw = await _generateTextWithProvider(
+      provider,
+      prompt,
+      temperature: _getTemperature(provider, 'expression_tips'),
+      maxOutputTokens: _getMaxTokens(provider, 'expression_tips'),
+    );
+
+    debugPrint('RAW EXPRESSION TIPS: $raw');
+
+    if (provider.supportsStrictJsonPrompt) {
+      final parsed = _tryParseJsonObject(raw);
+
+      String alt1 = '';
+      String alt2 = '';
+      String note = '';
+
+      if (parsed != null) {
+        alt1 = (parsed['alternative_1'] ?? '').toString().trim();
+        alt2 = (parsed['alternative_2'] ?? '').toString().trim();
+        note = (parsed['note'] ?? '').toString().trim();
+      }
+
+      alt1 = _cleanPlainText(alt1);
+      alt2 = _cleanPlainText(alt2);
+      note = _cleanPlainText(note);
+
+      if (alt1.isEmpty) alt1 = _buildFallbackAlternative1(englishSentence);
+      if (alt2.isEmpty) alt2 = _buildFallbackAlternative2(englishSentence);
+      if (note.isEmpty) note = 'Use this in a natural everyday conversation.';
+
+      return 'Alternative 1: $alt1\nAlternative 2: $alt2\nNote: $note';
+    }
+
+    if (provider == AiProvider.gemma2Local) {
+      final cleaned = _cleanPlainText(raw);
+
+      if (cleaned.isEmpty) {
+        return 'Alternative 1: ${_buildFallbackAlternative1(englishSentence)}\n'
+            'Alternative 2: ${_buildFallbackAlternative2(englishSentence)}\n'
+            'Note: Use this in a natural everyday conversation.';
+      }
+
+      final alt1Match = RegExp(
+        r'(?:Alternative 1:|##\s*Alternative 1:|\*\*Alternative 1:\*\*)\s*(.+)',
+        caseSensitive: false,
+      ).firstMatch(cleaned);
+
+      final alt2Match = RegExp(
+        r'(?:Alternative 2:|##\s*Alternative 2:|\*\*Alternative 2:\*\*)\s*(.+)',
+        caseSensitive: false,
+      ).firstMatch(cleaned);
+
+      final noteMatch = RegExp(
+        r'(?:Note:|Short Tip:|\*\*Note:\*\*|\*\*Short Tip:\*\*)\s*(.+)',
+        caseSensitive: false,
+      ).firstMatch(cleaned);
+
+      final alt1 = alt1Match?.group(1)?.trim().isNotEmpty == true
+          ? alt1Match!.group(1)!.trim()
+          : _buildFallbackAlternative1(englishSentence);
+
+      final alt2 = alt2Match?.group(1)?.trim().isNotEmpty == true
+          ? alt2Match!.group(1)!.trim()
+          : _buildFallbackAlternative2(englishSentence);
+
+      final note = noteMatch?.group(1)?.trim().isNotEmpty == true
+          ? noteMatch!.group(1)!.trim()
+          : 'Use this in a natural everyday conversation.';
+
+      return 'Alternative 1: $alt1\n'
+          'Alternative 2: $alt2\n'
+          'Note: $note';
+    }
+
+    final cleaned = _cleanPlainText(raw);
+    return cleaned.isEmpty
+        ? 'Alternative 1: ${_buildFallbackAlternative1(englishSentence)}\n'
+        'Alternative 2: ${_buildFallbackAlternative2(englishSentence)}\n'
+        'Note: Use this in a natural everyday conversation.'
+        : cleaned;
+  }
+
+  // =========================
+  // Helpers
+  // =========================
 
   static Map<String, dynamic>? _tryParseJsonObject(String raw) {
     try {

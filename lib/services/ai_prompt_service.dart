@@ -1,5 +1,6 @@
 import '../models/ai_provider.dart';
-import 'prompts/gemma_local_prompts.dart';
+import 'prompts/gemma2_local_prompts.dart';
+import 'prompts/gemma4_local_prompts.dart';
 import 'prompts/gemini_prompts.dart';
 
 class AiPromptService {
@@ -8,8 +9,12 @@ class AiPromptService {
       String text,
       ) {
     switch (provider) {
-      case AiProvider.gemmaLocal:
-        return GemmaLocalPrompts.buildTranslateToEnglishPrompt(text);
+      case AiProvider.gemma2Local:
+        return Gemma2LocalPrompts.buildTranslateToEnglishPrompt(text);
+      case AiProvider.gemma4Local:
+        return Gemma4LocalPrompts.buildTranslateToEnglishPrompt(text);
+      case AiProvider.qwenLocal:
+        return Gemma4LocalPrompts.buildTranslateToEnglishPrompt(text);
       case AiProvider.geminiApi:
         return GeminiPrompts.buildTranslateToEnglishPrompt(text);
     }
@@ -20,8 +25,12 @@ class AiPromptService {
       String text,
       ) {
     switch (provider) {
-      case AiProvider.gemmaLocal:
-        return GemmaLocalPrompts.buildTranslateToTraditionalChinesePrompt(text);
+      case AiProvider.gemma2Local:
+        return Gemma2LocalPrompts.buildTranslateToTraditionalChinesePrompt(text);
+      case AiProvider.gemma4Local:
+        return Gemma4LocalPrompts.buildTranslateToTraditionalChinesePrompt(text);
+      case AiProvider.qwenLocal:
+        return Gemma4LocalPrompts.buildTranslateToTraditionalChinesePrompt(text);
       case AiProvider.geminiApi:
         return GeminiPrompts.buildTranslateToTraditionalChinesePrompt(text);
     }
@@ -33,8 +42,18 @@ class AiPromptService {
       String userText,
       ) {
     switch (provider) {
-      case AiProvider.gemmaLocal:
-        return GemmaLocalPrompts.buildChineseReplyPrompt(
+      case AiProvider.gemma2Local:
+        return Gemma2LocalPrompts.buildChineseReplyPrompt(
+          conversationContext,
+          userText,
+        );
+      case AiProvider.gemma4Local:
+        return Gemma4LocalPrompts.buildChineseReplyPrompt(
+          conversationContext,
+          userText,
+        );
+      case AiProvider.qwenLocal:
+        return Gemma4LocalPrompts.buildChineseReplyPrompt(
           conversationContext,
           userText,
         );
@@ -51,8 +70,12 @@ class AiPromptService {
       String englishSentence,
       ) {
     switch (provider) {
-      case AiProvider.gemmaLocal:
-        return GemmaLocalPrompts.buildExpressionTipsPrompt(englishSentence);
+      case AiProvider.gemma2Local:
+        return Gemma2LocalPrompts.buildExpressionTipsPrompt(englishSentence);
+      case AiProvider.gemma4Local:
+        return Gemma4LocalPrompts.buildExpressionTipsPrompt(englishSentence);
+      case AiProvider.qwenLocal:
+        return Gemma4LocalPrompts.buildExpressionTipsPrompt(englishSentence);
       case AiProvider.geminiApi:
         return GeminiPrompts.buildExpressionTipsPrompt(englishSentence);
     }

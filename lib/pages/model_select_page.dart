@@ -169,7 +169,9 @@ class _ModelSelectPageState extends State<ModelSelectPage> {
         child: Column(
           children: [
             _buildIntroCard(),
-            _buildProviderCard(AiProvider.gemmaLocal),
+            _buildProviderCard(AiProvider.gemma2Local),
+            _buildProviderCard(AiProvider.gemma4Local),
+            _buildProviderCard(AiProvider.qwenLocal),
             _buildProviderCard(AiProvider.geminiApi),
           ],
         ),
