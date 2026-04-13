@@ -1,42 +1,6 @@
 import 'prompt_utils.dart';
 
 class Gemma4LocalPrompts {
-  static String buildTranslateToEnglishPrompt(String text) {
-    final input = PromptUtils.safeText(text);
-
-    return '''
-You are a translation assistant.
-Translate the following text into natural English.
-
-Rules:
-1. Output English only.
-2. No explanation.
-3. No quotation marks.
-4. Keep it concise and natural.
-
-Text:
-$input
-''';
-  }
-
-  static String buildTranslateToTraditionalChinesePrompt(String text) {
-    final input = PromptUtils.safeText(text);
-
-    return '''
-你是翻譯助手。
-請將以下內容翻譯成自然的繁體中文。
-
-規則：
-1. 只輸出繁體中文
-2. 不要解釋
-3. 不要加引號
-4. 保持自然簡短
-
-內容：
-$input
-''';
-  }
-
   static String buildChineseReplyPrompt(
       String conversationContext,
       String userText,
@@ -62,31 +26,27 @@ $input
 ''';
   }
 
-  static String buildExpressionTipsPrompt(String englishSentence) {
-    final input = PromptUtils.safeText(englishSentence);
+  static String buildKnowledgeReplyPrompt(String userText) {
+    final input = PromptUtils.safeText(userText);
 
     return '''
-You are an English learning assistant.
+你是 Amy。
+請用繁體中文自然回答使用者的問題。
 
-Task:
-Give exactly:
-- 2 natural alternative expressions
-- 1 short usage tip
+規則：
+1. 用繁體中文
+2. 可以簡短解釋
+3. 回答自然，不要太制式
+4. 以 1 到 3 句為主
+5. 不要列點
+6. 不要留白
+7. 不要重複使用者原句
+8. 直接回答，不要先說「這要看角度」或「很複雜」
 
-Rules:
-1. English only.
-2. No markdown.
-3. No headings.
-4. No bullet points.
-5. Keep it short and natural.
-6. Use exactly this format:
-
-Alternative 1: ...
-Alternative 2: ...
-Note: ...
-
-Sentence:
+使用者：
 $input
+
+回覆：
 ''';
   }
 }

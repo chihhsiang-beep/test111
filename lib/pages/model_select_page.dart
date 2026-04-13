@@ -126,7 +126,7 @@ class _ModelSelectPageState extends State<ModelSelectPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '選擇 AI 模型',
+            '選擇 AI 模式',
             style: TextStyle(
               color: Colors.white,
               fontSize: 18,
@@ -135,7 +135,7 @@ class _ModelSelectPageState extends State<ModelSelectPage> {
           ),
           SizedBox(height: 8),
           Text(
-            '你可以依照需求切換本地或雲端模型。本地模型較穩定離線，雲端模型通常品質更好。',
+            '本地模式會使用多模型協作（聊天、翻譯、更多）。雲端模式保留給未來高品質模型使用。',
             style: TextStyle(
               color: Colors.white70,
               fontSize: 13,
@@ -169,10 +169,8 @@ class _ModelSelectPageState extends State<ModelSelectPage> {
         child: Column(
           children: [
             _buildIntroCard(),
-            _buildProviderCard(AiProvider.gemma2Local),
-            _buildProviderCard(AiProvider.gemma4Local),
-            _buildProviderCard(AiProvider.qwenLocal),
-            _buildProviderCard(AiProvider.geminiApi),
+            _buildProviderCard(AiProvider.local),
+            _buildProviderCard(AiProvider.cloud),
           ],
         ),
       ),
