@@ -27,6 +27,9 @@ class AIService {
   static Future<AiProvider> getCurrentProvider() async {
     return await AISettingsService.getSelectedProvider();
   }
+  static const AiProvider _chatProvider = AiProvider.gemma4Local;
+  static const AiProvider _translationProvider = AiProvider.gemma2Local;
+  static const AiProvider _paraphraseProvider = AiProvider.qwenLocal;
 
   static Future<void> setCurrentProvider(AiProvider provider) async {
     await AISettingsService.setSelectedProvider(provider);
@@ -112,14 +115,14 @@ class AIService {
       case AiProvider.qwenLocal:
         switch (task) {
           case 'chinese_reply':
-            return 180;
+            return 800;
           case 'translate_en':
           case 'translate_zh':
-            return 160;
+            return 600;
           case 'expression_tips':
-            return 240;
+            return 400;
           default:
-            return 180;
+            return 400;
         }
 
       case AiProvider.geminiApi:
@@ -148,7 +151,7 @@ class AIService {
   static Future<String> _generateText(
       String prompt, {
         double temperature = 0.3,
-        int maxOutputTokens = 150,
+        int maxOutputTokens = 800,
       }) async {
     final provider = await getCurrentProvider();
     return _generateTextWithProvider(
@@ -163,7 +166,7 @@ class AIService {
       AiProvider provider,
       String prompt, {
         double temperature = 0.3,
-        int maxOutputTokens = 150,
+        int maxOutputTokens = 800,
       }) async {
     switch (provider) {
       case AiProvider.gemma2Local:
@@ -184,7 +187,6 @@ class AIService {
         );
 
         if (_isGeminiTemporaryError(geminiResult)) {
-          debugPrint('Gemini 暫時失敗，改用 Gemma 2B fallback');
           return await _callOllama(
             prompt,
             provider: AiProvider.gemma2Local,
@@ -409,7 +411,7 @@ class AIService {
       provider,
       prompt,
       temperature: 0.3,
-      maxOutputTokens: 120,
+      maxOutputTokens: 800,
     );
 
     debugPrint('RAW EXPRESSION TIPS: $raw');
@@ -451,11 +453,7 @@ class AIService {
   // =========================
 
   static Future<String> translateToEnglish(String text) async {
-    final provider = await getCurrentProvider();
-
-    if (_isGemma4Local(provider)) {
-      return _gemma4LegacyTranslateToEnglish(text);
-    }
+    const provider = _translationProvider;
 
     final prompt = AiPromptService.buildTranslateToEnglishPrompt(
       provider,
@@ -465,19 +463,15 @@ class AIService {
     final raw = await _generateTextWithProvider(
       provider,
       prompt,
-      temperature: _getTemperature(provider, 'translate_en'),
-      maxOutputTokens: _getMaxTokens(provider, 'translate_en'),
+      temperature: 0.10,
+      maxOutputTokens: 800,
     );
 
     return _cleanPlainText(raw);
   }
 
   static Future<String> translateToTraditionalChinese(String text) async {
-    final provider = await getCurrentProvider();
-
-    if (_isGemma4Local(provider)) {
-      return _gemma4LegacyTranslateToTraditionalChinese(text);
-    }
+    const provider = _translationProvider;
 
     final prompt = AiPromptService.buildTranslateToTraditionalChinesePrompt(
       provider,
@@ -487,11 +481,80 @@ class AIService {
     final raw = await _generateTextWithProvider(
       provider,
       prompt,
-      temperature: _getTemperature(provider, 'translate_zh'),
-      maxOutputTokens: _getMaxTokens(provider, 'translate_zh'),
+      temperature: 0.10,
+      maxOutputTokens: 800,
     );
 
     return _cleanPlainText(raw);
+  }
+
+  static bool _isKnowledgeStyleQuestion(String text) {
+    final t = text.trim();
+
+    // 明確的知識 / 解釋型問句
+    const strongKeywords = [
+      '是什麼',
+      '什麼是',
+      '為什麼',
+      '如何',
+      '原理',
+      '意思',
+      '用途',
+      '差別',
+      '比較',
+      '介紹',
+    ];
+
+    for (final k in strongKeywords) {
+      if (t.contains(k)) return true;
+    }
+
+    // 常見寒暄 / 日常聊天，直接排除
+    const casualPatterns = [
+      '你好',
+      '你好嗎',
+      '您好',
+      '早安',
+      '午安',
+      '晚安',
+      '在嗎',
+      '你在幹嘛',
+      '今天天氣',
+      '天氣怎麼樣',
+      '天氣如何',
+      '吃飯了嗎',
+    ];
+
+    for (final k in casualPatterns) {
+      if (t.contains(k)) return false;
+    }
+
+    // 只有較長、較像提問內容時才當知識問題
+    if (t.length >= 12) return true;
+
+    return false;
+  }
+
+  static String _buildKnowledgeReplyPrompt(String userText) {
+    return '''
+你是 Amy。
+請用繁體中文自然回答使用者的問題。
+
+規則：
+1. 用繁體中文
+2. 可以簡短解釋
+3. 回答自然，不要太制式
+4. 以 1 到 3 句為主
+5. 不要列點
+6. 不要留白
+7. 不要重複使用者原句
+8. 直接回答，不要先說「這要看角度」或「很複雜」
+
+使用者：
+$userText
+
+回覆：
+''';
   }
 
   static Future<String> getChineseReply(
@@ -500,24 +563,23 @@ class AIService {
       ) async {
     final provider = await getCurrentProvider();
 
-    if (_isGemma4Local(provider)) {
-      return _gemma4LegacyChineseReply(conversationContext, userText);
-    }
+    final isKnowledgeQuestion = _isKnowledgeStyleQuestion(userText);
 
-    final prompt = AiPromptService.buildChineseReplyPrompt(
+    final prompt = isKnowledgeQuestion
+        ? _buildKnowledgeReplyPrompt(userText)
+        : AiPromptService.buildChineseReplyPrompt(
       provider,
-      conversationContext,
+      provider == AiProvider.gemma4Local ? '' : conversationContext,
       userText,
     );
 
     debugPrint('==== CHINESE REPLY PROMPT ====');
     debugPrint(prompt);
 
-    final raw = await _generateTextWithProvider(
-      provider,
+    final raw = await _generateText(
       prompt,
-      temperature: _getTemperature(provider, 'chinese_reply'),
-      maxOutputTokens: _getMaxTokens(provider, 'chinese_reply'),
+      temperature: isKnowledgeQuestion ? 0.2 : 0.15,
+      maxOutputTokens: isKnowledgeQuestion ? 220 : 400,
     );
 
     debugPrint('==== RAW CHINESE REPLY ====');
@@ -529,13 +591,23 @@ class AIService {
     debugPrint(cleaned);
 
     if (cleaned.isEmpty) {
-      return '我在喔';
+      return isKnowledgeQuestion ? '這個要看角度。' : '我在喔';
     }
 
     if (_looksMostlyEnglish(cleaned)) {
       final translated = await translateToTraditionalChinese(cleaned);
-      final result = _cleanShortChineseReply(translated);
-      return result.isEmpty ? '我在喔' : result;
+      final result = isKnowledgeQuestion
+          ? _cleanPlainText(translated)
+          : _cleanShortChineseReply(translated);
+
+      if (result.isEmpty) {
+        return isKnowledgeQuestion ? '這個要看角度。' : '我在喔';
+      }
+      return result;
+    }
+
+    if (isKnowledgeQuestion) {
+      return _cleanPlainText(cleaned);
     }
 
     final result = _cleanShortChineseReply(cleaned);
@@ -543,102 +615,100 @@ class AIService {
   }
 
   static Future<String> getExpressionTips(String sentence) async {
-    final provider = await getCurrentProvider();
+    const provider = AiProvider.qwenLocal;
+    final originalSentence = sentence.trim();
 
-    if (_isGemma4Local(provider)) {
-      return _gemma4LegacyExpressionTips(sentence);
-    }
+    final prompt = '''
+You are an English learning assistant.
 
-    String englishSentence = sentence.trim();
-    if (!_looksMostlyEnglish(englishSentence)) {
-      englishSentence = await translateToEnglish(englishSentence);
-    }
+Task:
+For the sentence below, do all of the following:
+1. Translate it into natural English
+2. Give 2 different natural English paraphrases
+3. Give 1 short grammar or usage tip
 
-    final prompt = AiPromptService.buildExpressionTipsPrompt(
-      provider,
-      englishSentence,
-    );
+STRICT RULES:
+1. Output in English only
+2. Do NOT use markdown
+3. Do NOT use bullet points
+4. Do NOT add any extra explanation
+5. Output EXACTLY in this format:
 
-    final raw = await _generateTextWithProvider(
-      provider,
+Original: ...
+Alternative 1: ...
+Alternative 2: ...
+Note: ...
+
+6. If the input is Chinese, first translate it naturally
+7. Alternative 1 and Alternative 2 must be clearly different from Original
+8. Keep everything short and natural
+
+Sentence:
+$originalSentence
+''';
+
+    final raw = await _callOllama(
       prompt,
-      temperature: _getTemperature(provider, 'expression_tips'),
-      maxOutputTokens: _getMaxTokens(provider, 'expression_tips'),
+      provider: provider,
+      temperature: 0.2,
+      maxTokens: 260,
     );
 
     debugPrint('RAW EXPRESSION TIPS: $raw');
 
-    if (provider.supportsStrictJsonPrompt) {
-      final parsed = _tryParseJsonObject(raw);
-
-      String alt1 = '';
-      String alt2 = '';
-      String note = '';
-
-      if (parsed != null) {
-        alt1 = (parsed['alternative_1'] ?? '').toString().trim();
-        alt2 = (parsed['alternative_2'] ?? '').toString().trim();
-        note = (parsed['note'] ?? '').toString().trim();
-      }
-
-      alt1 = _cleanPlainText(alt1);
-      alt2 = _cleanPlainText(alt2);
-      note = _cleanPlainText(note);
-
-      if (alt1.isEmpty) alt1 = _buildFallbackAlternative1(englishSentence);
-      if (alt2.isEmpty) alt2 = _buildFallbackAlternative2(englishSentence);
-      if (note.isEmpty) note = 'Use this in a natural everyday conversation.';
-
-      return 'Alternative 1: $alt1\nAlternative 2: $alt2\nNote: $note';
-    }
-
-    if (provider == AiProvider.gemma2Local) {
-      final cleaned = _cleanPlainText(raw);
-
-      if (cleaned.isEmpty) {
-        return 'Alternative 1: ${_buildFallbackAlternative1(englishSentence)}\n'
-            'Alternative 2: ${_buildFallbackAlternative2(englishSentence)}\n'
-            'Note: Use this in a natural everyday conversation.';
-      }
-
-      final alt1Match = RegExp(
-        r'(?:Alternative 1:|##\s*Alternative 1:|\*\*Alternative 1:\*\*)\s*(.+)',
-        caseSensitive: false,
-      ).firstMatch(cleaned);
-
-      final alt2Match = RegExp(
-        r'(?:Alternative 2:|##\s*Alternative 2:|\*\*Alternative 2:\*\*)\s*(.+)',
-        caseSensitive: false,
-      ).firstMatch(cleaned);
-
-      final noteMatch = RegExp(
-        r'(?:Note:|Short Tip:|\*\*Note:\*\*|\*\*Short Tip:\*\*)\s*(.+)',
-        caseSensitive: false,
-      ).firstMatch(cleaned);
-
-      final alt1 = alt1Match?.group(1)?.trim().isNotEmpty == true
-          ? alt1Match!.group(1)!.trim()
-          : _buildFallbackAlternative1(englishSentence);
-
-      final alt2 = alt2Match?.group(1)?.trim().isNotEmpty == true
-          ? alt2Match!.group(1)!.trim()
-          : _buildFallbackAlternative2(englishSentence);
-
-      final note = noteMatch?.group(1)?.trim().isNotEmpty == true
-          ? noteMatch!.group(1)!.trim()
-          : 'Use this in a natural everyday conversation.';
-
-      return 'Alternative 1: $alt1\n'
-          'Alternative 2: $alt2\n'
-          'Note: $note';
-    }
-
     final cleaned = _cleanPlainText(raw);
-    return cleaned.isEmpty
-        ? 'Alternative 1: ${_buildFallbackAlternative1(englishSentence)}\n'
-        'Alternative 2: ${_buildFallbackAlternative2(englishSentence)}\n'
-        'Note: Use this in a natural everyday conversation.'
-        : cleaned;
+
+    if (cleaned.isEmpty) {
+      return 'Alternative 1: ${_buildFallbackAlternative1(originalSentence)}\n'
+          'Alternative 2: ${_buildFallbackAlternative2(originalSentence)}\n'
+          'Note: Use this in a natural everyday conversation.';
+    }
+
+    final originalMatch = RegExp(
+      r'(?:Original:)\s*(.+)',
+      caseSensitive: false,
+    ).firstMatch(cleaned);
+
+    final alt1Match = RegExp(
+      r'(?:Alternative 1:)\s*(.+)',
+      caseSensitive: false,
+    ).firstMatch(cleaned);
+
+    final alt2Match = RegExp(
+      r'(?:Alternative 2:)\s*(.+)',
+      caseSensitive: false,
+    ).firstMatch(cleaned);
+
+    final noteMatch = RegExp(
+      r'(?:Note:)\s*(.+)',
+      caseSensitive: false,
+    ).firstMatch(cleaned);
+
+    final originalEn = originalMatch?.group(1)?.trim() ?? '';
+    final alt1 = alt1Match?.group(1)?.trim() ?? '';
+    final alt2 = alt2Match?.group(1)?.trim() ?? '';
+    final note = noteMatch?.group(1)?.trim() ?? '';
+
+    final finalOriginal = originalEn.isNotEmpty
+        ? _cleanPlainText(originalEn)
+        : await translateToEnglish(originalSentence);
+
+    final finalAlt1 = alt1.isNotEmpty
+        ? _cleanPlainText(alt1)
+        : finalOriginal;
+
+    final finalAlt2 = alt2.isNotEmpty
+        ? _cleanPlainText(alt2)
+        : _buildFallbackAlternative2(finalOriginal);
+
+    final finalNote = note.isNotEmpty
+        ? _cleanPlainText(note)
+        : 'Use this in a natural everyday conversation.';
+
+    return 'Original: $finalOriginal\n'
+        'Alternative 1: $finalAlt1\n'
+        'Alternative 2: $finalAlt2\n'
+        'Note: $finalNote';
   }
 
   // =========================

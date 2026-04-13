@@ -22,22 +22,22 @@ class AiModelConfigService {
           case AiTaskType.chineseReply:
             return const AiGenerationConfig(
               temperature: 0.2,
-              maxTokens: 80,
+              maxTokens: 800,
             );
           case AiTaskType.translateToEnglish:
             return const AiGenerationConfig(
               temperature: 0.1,
-              maxTokens: 120,
+              maxTokens: 1200,
             );
           case AiTaskType.translateToChinese:
             return const AiGenerationConfig(
               temperature: 0.1,
-              maxTokens: 120,
+              maxTokens: 1200,
             );
           case AiTaskType.expressionTips:
             return const AiGenerationConfig(
               temperature: 0.3,
-              maxTokens: 220,
+              maxTokens: 2200,
             );
         }
 
@@ -46,7 +46,7 @@ class AiModelConfigService {
           case AiTaskType.chineseReply:
             return const AiGenerationConfig(
               temperature: 0.15,
-              maxTokens: 400,
+              maxTokens: 800,
             );
           case AiTaskType.translateToEnglish:
             return const AiGenerationConfig(
@@ -70,22 +70,22 @@ class AiModelConfigService {
           case AiTaskType.chineseReply:
             return const AiGenerationConfig(
               temperature: 0.15,
-              maxTokens: 180,
+              maxTokens: 1800,
             );
           case AiTaskType.translateToEnglish:
             return const AiGenerationConfig(
               temperature: 0.1,
-              maxTokens: 160,
+              maxTokens: 1600,
             );
           case AiTaskType.translateToChinese:
             return const AiGenerationConfig(
               temperature: 0.1,
-              maxTokens: 160,
+              maxTokens: 1600,
             );
           case AiTaskType.expressionTips:
             return const AiGenerationConfig(
               temperature: 0.25,
-              maxTokens: 240,
+              maxTokens: 2400,
             );
         }
 
